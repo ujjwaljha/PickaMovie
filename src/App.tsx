@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PRESETS } from "./data/presets";
 import { rankPool } from "./domain/scoring";
+import { similarTo } from "./domain/similar";
 import { joinNames } from "./domain/format";
 import { actingPerson, voters } from "./domain/session";
 import { FilterBar } from "./components/FilterBar";
@@ -15,10 +16,12 @@ import { catalog } from "./services/catalog";
 export function App() {
   const { session, saved, notice, dispatch, addTitle } = useSession();
   const [focusToken, setFocusToken] = useState(0);
+  const [mode, setMode] = useState<"compare" | "similar">("compare");
   const revealOnMobile = useRef(false);
   const titles = catalog.getMany(session.order);
   const person = actingPerson(session);
   const ranked = useMemo(() => rankPool(titles, voters(session)), [titles, session]);
+  const suggestions = useMemo(() => (mode === "similar" ? similarTo(titles, catalog.all()) : []), [mode, titles]);
 
   useEffect(() => {
     if (!revealOnMobile.current) return;
@@ -48,7 +51,7 @@ export function App() {
   const legend = person.id === "you" ? "Your mood" : `${person.name}'s mood`;
 
   return (
-    <div className={titles.length > 0 ? "app has-dock" : "app"}>
+    <div className={titles.length > 0 && mode === "compare" ? "app has-dock" : "app"}>
       <a className="skip" href="#comparison">
         Skip to comparison
       </a>
@@ -57,10 +60,19 @@ export function App() {
         <section className="console" aria-label="Build the shortlist">
           <div>
             <p className="eyebrow">The table</p>
-            <h2 className="console-title">What are we deciding?</h2>
+            <h2 className="console-title">{mode === "similar" ? "What do you already like?" : "What are we deciding?"}</h2>
+          </div>
+          <div className="mode-switch" role="tablist" aria-label="What to do with the titles">
+            <button type="button" role="tab" aria-selected={mode === "compare"} onClick={() => setMode("compare")}>
+              Compare
+            </button>
+            <button type="button" role="tab" aria-selected={mode === "similar"} onClick={() => setMode("similar")}>
+              More like these
+            </button>
           </div>
           <SearchBox
             session={session}
+            label={mode === "similar" && !session.groupMode ? "Name a title you like" : undefined}
             onAdd={(id) => {
               revealOnMobile.current = true;
               addTitle(id);
@@ -72,9 +84,11 @@ export function App() {
             </p>
           ) : null}
           <p className="hint">
-            {session.groupMode
-              ? `Search adds to ${person.name}. Weigh and pick balances every mood on the couch.`
-              : "Set the clock, the energy, and the company. Then put two or more titles side by side."}
+            {mode === "similar"
+              ? "Name a few titles you already like. More like these stays on this shelf."
+              : session.groupMode
+                ? `Search adds to ${person.name}. Weigh and pick balances every mood on the couch.`
+                : "Set the clock, the energy, and the company. Then put two or more titles side by side."}
           </p>
           <FilterBar
             filters={person.filters}
@@ -119,11 +133,17 @@ export function App() {
           titles={titles}
           ranked={ranked}
           focusToken={focusToken}
+          mode={mode}
+          suggestions={suggestions}
           onPreset={(presetId) => {
             revealOnMobile.current = true;
             dispatch({ type: "load-preset", presetId });
           }}
           onRemove={(titleId) => dispatch({ type: "remove", titleId })}
+          onAdd={(titleId) => {
+            revealOnMobile.current = true;
+            addTitle(titleId);
+          }}
           onWeigh={weigh}
         />
       </main>
@@ -136,7 +156,7 @@ export function App() {
           {session.groupMode ? `On the couch: ${joinNames(session.people.map((person) => person.name))}.` : "Watching solo."}
         </p>
       </footer>
-      {titles.length > 0 ? (
+      {titles.length > 0 && mode === "compare" ? (
         <div className="dock">
           {titles.length < 2 ? (
             <p>Add one more title to compare.</p>

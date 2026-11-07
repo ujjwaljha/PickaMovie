@@ -1105,6 +1105,78 @@ details summary {
   margin-top: 0.8rem;
 }
 
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.mode-switch button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 4px;
+  background: #333333;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-switch button[aria-selected="true"] {
+  background: #e50914;
+}
+
+.mode-switch button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.similar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.similar-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem;
+  background: #181818;
+  border-radius: 4px;
+}
+
+.similar-copy h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.similar-copy p {
+  margin: 0.1rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.similar-score {
+  color: #46d369;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 720px) {
+  .similar-list li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .similar-list .btn {
+    grid-column: 1 / -1;
+  }
+}
+
 footer p + p {
   margin-top: 0.35rem;
 }

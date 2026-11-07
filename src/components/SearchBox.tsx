@@ -7,7 +7,15 @@ import { actingPerson, addBlockReason, type Session } from "../domain/session";
 import { catalog } from "../services/catalog";
 import { Poster } from "./Poster";
 
-export function SearchBox({ session, onAdd }: { session: Session; onAdd: (id: string) => void }) {
+export function SearchBox({
+  session,
+  onAdd,
+  label,
+}: {
+  session: Session;
+  onAdd: (id: string) => void;
+  label?: string;
+}) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -35,7 +43,7 @@ export function SearchBox({ session, onAdd }: { session: Session; onAdd: (id: st
   return (
     <div className="search" ref={rootRef}>
       <label htmlFor="title-search">
-        {session.groupMode ? `Add a title for ${person.name}` : "Search the shelf"}
+        {label ?? (session.groupMode ? `Add a title for ${person.name}` : "Search the shelf")}
       </label>
       <div className="search-field">
         <Search size={18} aria-hidden="true" />

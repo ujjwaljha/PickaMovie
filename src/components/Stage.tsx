@@ -4,26 +4,34 @@ import { PRESETS } from "../data/presets";
 import { narrateDecision, scoreTitle, type RankedTitle } from "../domain/scoring";
 import { youPerson, type Person, type Session } from "../domain/session";
 import type { Filters, Title } from "../domain/types";
+import type { SimilarHit } from "../domain/similar";
 import { catalog } from "../services/catalog";
 import { Comparison } from "./Comparison";
 import { Meter } from "./Meter";
 import { Poster } from "./Poster";
+import { SimilarList } from "./SimilarList";
 
 export function Stage({
   session,
   titles,
   ranked,
   focusToken,
+  mode,
+  suggestions,
   onPreset,
   onRemove,
+  onAdd,
   onWeigh,
 }: {
   session: Session;
   titles: Title[];
   ranked: RankedTitle[];
   focusToken: number;
+  mode: "compare" | "similar";
+  suggestions: SimilarHit[];
   onPreset: (id: string) => void;
   onRemove: (id: string) => void;
+  onAdd: (id: string) => void;
   onWeigh: () => void;
 }) {
   const verdict = ranked.find((item) => item.title.id === session.verdictId) ?? null;
@@ -31,7 +39,9 @@ export function Stage({
 
   return (
     <section className="stage" id="comparison">
-      {titles.length === 0 ? (
+      {mode === "similar" ? (
+        <SimilarList seeds={titles} hits={suggestions} onAdd={onAdd} />
+      ) : titles.length === 0 ? (
         <Hero onPreset={onPreset} />
       ) : (
         <>
