@@ -127,7 +127,7 @@ export function App() {
           onWeigh={weigh}
         />
       </main>
-      <footer className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4">
+      <footer className="mx-auto w-full max-w-[88rem] px-4 pb-16 pt-4">
         <p>
           {catalog.label} of {catalog.all().length} titles. Scores, vibes, and mood fits are curated so a decision works with no account and no network.
         </p>

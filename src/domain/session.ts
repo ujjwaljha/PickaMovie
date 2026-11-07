@@ -6,7 +6,7 @@ import type { Company, Energy, Filters, TimeSlot } from "./types";
 export const MAX_TITLES = 4;
 export const MAX_PEOPLE = 4;
 export const STORAGE_KEY = "what2watch.session.v1";
-export const PERSON_COLORS = ["#f0a202", "#8eb8ff", "#ff8b6a", "#b7e3a1"] as const;
+export const PERSON_COLORS = ["#ff3d5a", "#7c8cff", "#ffc457", "#5ee0a8"] as const;
 
 const FRIEND_NAMES = ["Alex", "Sam", "Jules"];
 const TIME_SLOTS = new Set<TimeSlot>(["any", "90min", "evening", "episode"]);

@@ -147,7 +147,7 @@ function Ticket({
       {groupMode ? (
         <ul className="ticket-people">
           {verdict.weigh.perPerson.map((person) => {
-            const color = people.find((item) => item.id === person.personId)?.color ?? "#f0a202";
+            const color = people.find((item) => item.id === person.personId)?.color ?? "#ff3d5a";
             return (
               <li key={person.personId}>
                 <span>

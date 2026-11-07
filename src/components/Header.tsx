@@ -5,8 +5,8 @@ export function Header({ saved, onClear }: { saved: boolean; onClear: () => void
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <header className="border-b border-line">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-4">
+    <header className="site-header">
+      <div className="mx-auto flex w-full max-w-[88rem] items-center justify-between gap-4 px-4 py-4">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
             2
@@ -19,7 +19,7 @@ export function Header({ saved, onClear }: { saved: boolean; onClear: () => void
           </div>
         </div>
         <div className="header-actions">
-          <p className="saved" role="status">
+          <p className={saved ? "saved is-fresh" : "saved"} role="status">
             {saved ? "Saved" : "On this device"}
           </p>
           {confirming ? (
