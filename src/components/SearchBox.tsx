@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Minus, Plus, Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { KIND_LABEL } from "../domain/copy";
 import { formatDuration } from "../domain/format";
@@ -12,12 +12,14 @@ import { Poster } from "./Poster";
 export function SearchBox({
   session,
   onAdd,
+  onRemove,
   label,
   catalogLive,
   discover,
 }: {
   session: Session;
   onAdd: (title: Title) => void;
+  onRemove: (id: string) => void;
   label?: string;
   catalogLive: boolean;
   discover: Title[];
@@ -74,8 +76,10 @@ export function SearchBox({
   }, [open]);
 
   const commit = (title: Title) => {
-    const reason = addBlockReason(session, title.id);
-    if (reason === "dup" || reason === "missing") return;
+    if (session.order.includes(title.id)) {
+      onRemove(title.id);
+      return;
+    }
     onAdd(title);
   };
 
@@ -144,20 +148,21 @@ export function SearchBox({
             <ul id={listId} role="listbox">
               {results.map((title, index) => {
                 const reason = addBlockReason(session, title.id);
-                const disabled = reason === "dup" || reason === "full";
-                const label = reason === "dup" ? "Added" : reason === "full" ? "Full" : session.groupMode && session.order.includes(title.id) ? `Add to ${person.name}` : "Add";
+                const picked = session.order.includes(title.id);
+                const full = !picked && reason === "full";
                 return (
                   <li
                     key={title.id}
                     id={`${listId}-${index}`}
                     role="option"
                     aria-selected={index === safeActive}
-                    aria-disabled={disabled}
+                    aria-disabled={full}
+                    aria-label={picked ? `Remove ${title.name} from the table` : full ? `${title.name} is not added. The table is full` : `Add ${title.name} to the table`}
                     className={index === safeActive ? "is-active" : ""}
                     onMouseEnter={() => setActive(index)}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => {
-                      if (!disabled) commit(title);
+                      if (!full) commit(title);
                     }}
                   >
                     <Poster title={title} size="sm" />
@@ -174,7 +179,9 @@ export function SearchBox({
                           : formatDuration(title.runtimeMinutes, title.approximate)}
                       </span>
                     </span>
-                    <span className={disabled ? "result-action is-quiet" : "result-action"}>{label}</span>
+                    <span className={picked ? "result-action is-picked" : full ? "result-action is-quiet" : "result-action"} aria-hidden="true">
+                      {full ? "Full" : picked ? <Minus size={16} strokeWidth={2.6} /> : <Plus size={16} strokeWidth={2.6} />}
+                    </span>
                   </li>
                 );
               })}

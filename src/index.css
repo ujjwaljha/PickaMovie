@@ -247,6 +247,8 @@ footer p,
 .preset:focus-visible,
 .person-chip:focus-visible,
 .toss-row button:focus-visible,
+.rail-card:focus-visible,
+.pick-btn:focus-visible,
 .results li:focus-visible {
   outline: 2px solid var(--color-amber);
   outline-offset: 3px;
@@ -378,17 +380,46 @@ footer p,
 }
 
 .result-action {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid transparent;
+  border-radius: 50%;
+  background: transparent;
   color: #fff;
-  background: var(--color-amber);
-  border-radius: 2px;
-  padding: 0.25rem 0.55rem;
-  font-size: 0.78rem;
-  font-weight: 700;
+}
+
+.result-action svg {
+  opacity: 0;
+}
+
+.results li:hover .result-action:not(.is-quiet),
+.results li.is-active .result-action:not(.is-quiet) {
+  border-color: #fff;
+}
+
+.results li:hover .result-action svg,
+.results li.is-active .result-action svg,
+.result-action.is-picked svg {
+  opacity: 1;
+}
+
+.result-action.is-picked {
+  border-color: #fff;
+  background: #e50914;
 }
 
 .result-action.is-quiet {
+  width: auto;
+  height: auto;
+  padding: 0.25rem 0.45rem;
+  border: 0;
+  border-radius: 2px;
   background: transparent;
   color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .filters {
@@ -622,7 +653,7 @@ footer p,
   list-style: none;
 }
 
-.rail button {
+.rail-card {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -634,6 +665,55 @@ footer p,
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.rail-poster {
+  position: relative;
+  display: block;
+}
+
+.rail-toggle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  transition: background 140ms ease;
+  pointer-events: none;
+}
+
+.rail-badge {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.rail-card:hover .rail-toggle,
+.rail-card:focus-visible .rail-toggle {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.rail-card:hover .rail-badge,
+.rail-card:focus-visible .rail-badge,
+.rail-card.is-picked .rail-badge {
+  opacity: 1;
+}
+
+.rail-card.is-picked .rail-badge {
+  background: #e50914;
+  border-color: #fff;
+}
+
+.rail-card.is-picked .poster {
+  box-shadow: inset 0 0 0 2px #e50914;
 }
 
 .rail .poster-md {
@@ -1265,6 +1345,33 @@ details summary {
   font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.04em;
+}
+
+.pick-btn {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.pick-btn svg {
+  opacity: 0;
+}
+
+.similar-list li:hover .pick-btn svg,
+.pick-btn:focus-visible svg,
+.pick-btn.is-picked svg {
+  opacity: 1;
+}
+
+.pick-btn.is-picked {
+  background: #e50914;
+  border-color: #fff;
 }
 
 @media (max-width: 720px) {

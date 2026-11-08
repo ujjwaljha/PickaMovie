@@ -150,6 +150,7 @@ export function App() {
             discover={discover}
             label={mode === "similar" && !session.groupMode ? "Name a title you like" : undefined}
             onAdd={acceptTitle}
+            onRemove={(titleId) => dispatch({ type: "remove", titleId })}
           />
           {notice ? (
             <p className="notice" role="status">

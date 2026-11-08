@@ -60,9 +60,16 @@ export function Stage({
         </div>
       </div>
       {mode === "similar" ? (
-        <SimilarList seeds={titles} hits={suggestions} live={liveMatches} onAdd={onAdd} />
+        <SimilarList
+          seeds={titles}
+          hits={suggestions}
+          live={liveMatches}
+          pickedIds={titles.map((title) => title.id)}
+          onAdd={onAdd}
+          onRemove={onRemove}
+        />
       ) : titles.length === 0 ? (
-        <Hero discover={discover} onAdd={onAdd} onPreset={onPreset} />
+        <Hero discover={discover} pickedIds={titles.map((title) => title.id)} onAdd={onAdd} onRemove={onRemove} onPreset={onPreset} />
       ) : (
         <>
           {verdict ? (
@@ -84,7 +91,7 @@ export function Stage({
             moodLabel={moodLabel(session)}
             onRemove={onRemove}
           />
-          <CatalogRail titles={discover} onAdd={onAdd} />
+          <CatalogRail titles={discover} pickedIds={titles.map((title) => title.id)} onAdd={onAdd} onRemove={onRemove} />
         </>
       )}
     </section>
@@ -115,11 +122,15 @@ function moodLabel(session: Session): string {
 
 function Hero({
   discover,
+  pickedIds,
   onAdd,
+  onRemove,
   onPreset,
 }: {
   discover: Title[];
+  pickedIds: readonly string[];
   onAdd: (title: Title) => void;
+  onRemove: (id: string) => void;
   onPreset: (id: string) => void;
 }) {
   return (
@@ -129,7 +140,7 @@ function Hero({
       <p className="lede">
         Movies, series, anime, and animation, lined up on the only things that matter tonight: how long it takes, how it feels, and who is in the room.
       </p>
-      <CatalogRail titles={discover} onAdd={onAdd} />
+      <CatalogRail titles={discover} pickedIds={pickedIds} onAdd={onAdd} onRemove={onRemove} />
       <div className="preset-grid">
         {PRESETS.map((preset) => {
           const titles = catalog.getMany(preset.titleIds);
