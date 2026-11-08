@@ -7,11 +7,13 @@ import { Poster } from "./Poster";
 export function SimilarList({
   seeds,
   hits,
+  live,
   onAdd,
 }: {
   seeds: Title[];
   hits: SimilarHit[];
-  onAdd: (id: string) => void;
+  live: boolean;
+  onAdd: (title: Title) => void;
 }) {
   if (seeds.length === 0) {
     return (
@@ -46,14 +48,18 @@ export function SimilarList({
                 <p>{hit.reasons.join(" · ")}</p>
               </div>
               <strong className="similar-score">{hit.score}</strong>
-              <button type="button" className="btn btn-primary" onClick={() => onAdd(hit.title.id)}>
+              <button type="button" className="btn btn-primary" onClick={() => onAdd(hit.title)}>
                 Add to table
               </button>
             </li>
           ))}
         </ul>
       )}
-      <p className="shelf-note">These matches use the sample shelf. A live catalog would score the same way.</p>
+      <p className="shelf-note">
+        {live
+          ? "Matches for a catalog title come from TMDB recommendations, then scored on the same vibe and mood axes. Sample-shelf titles still match inside the shelf."
+          : "These matches use the sample shelf. A live catalog would score the same way."}
+      </p>
     </div>
   );
 }

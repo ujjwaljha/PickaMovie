@@ -88,6 +88,16 @@ describe("session memory", () => {
     expect(clean.groupMode).toBe(false);
   });
 
+  it("keeps a TMDB id and still drops a script id", () => {
+    let session = reduceSession(defaultSession(), { type: "add", titleId: "tmdb-movie-129" });
+    session = reduceSession(session, { type: "add", titleId: "<script>" });
+    expect(session.order).toEqual(["tmdb-movie-129"]);
+    const store = memory();
+    saveSession(store, session);
+    expect(loadSession(store, "#w=tmdb-movie-129.tmdb-tv-1396").order).toEqual(["tmdb-movie-129", "tmdb-tv-1396"]);
+    expect(addBlockReason(defaultSession(), "tmdb-person-1")).toBe("missing");
+  });
+
   it("keeps a mirrored hash from wiping a stored verdict", () => {
     const session = reduceSession(reduceSession(defaultSession(), { type: "load-preset", presetId: "lights-out" }), {
       type: "weigh",

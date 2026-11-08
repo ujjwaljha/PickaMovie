@@ -1,7 +1,7 @@
 import { PRESETS } from "../data/presets";
 import { TITLE_BY_ID } from "../data/titles";
 import { rankPool, type Voter } from "./scoring";
-import type { Company, Energy, Filters, TimeSlot } from "./types";
+import type { Company, Energy, Filters, TimeSlot, Title } from "./types";
 
 export const MAX_TITLES = 4;
 export const MAX_PEOPLE = 4;
@@ -39,8 +39,14 @@ export type Action =
   | { type: "rename-person"; personId: string; name: string }
   | { type: "set-active"; personId: string }
   | { type: "load-preset"; presetId: string }
-  | { type: "weigh" }
+  | { type: "weigh"; titles?: readonly Title[] }
   | { type: "reset" };
+
+const TMDB_ID = /^tmdb-(movie|tv)-\d{1,10}$/;
+
+export function isCatalogId(id: string): boolean {
+  return TITLE_BY_ID.has(id) || TMDB_ID.test(id);
+}
 
 export const EMPTY_FILTERS: Filters = { time: "any", energy: "any", company: "any" };
 
@@ -72,7 +78,7 @@ export function poolIds(session: Session): string[] {
 }
 
 export function addBlockReason(session: Session, titleId: string): "missing" | "dup" | "full" | null {
-  if (!TITLE_BY_ID.has(titleId)) return "missing";
+  if (!isCatalogId(titleId)) return "missing";
   if (actingPerson(session).picks.includes(titleId)) return "dup";
   if (!session.order.includes(titleId) && session.order.length >= MAX_TITLES) return "full";
   return null;
@@ -177,8 +183,9 @@ export function reduceSession(session: Session, action: Action): Session {
       });
     }
     case "weigh": {
+      const supplied = new Map((action.titles ?? []).map((title) => [title.id, title]));
       const titles = session.order.flatMap((id) => {
-        const title = TITLE_BY_ID.get(id);
+        const title = supplied.get(id) ?? TITLE_BY_ID.get(id);
         return title ? [title] : [];
       });
       if (titles.length < 2) return session;
@@ -335,7 +342,7 @@ function sanitizeIdList(raw: unknown): string[] {
   const source = Array.isArray(raw) ? raw : [];
   const ids: string[] = [];
   for (const item of source) {
-    if (typeof item !== "string" || !TITLE_BY_ID.has(item) || ids.includes(item)) continue;
+    if (typeof item !== "string" || !isCatalogId(item) || ids.includes(item)) continue;
     ids.push(item);
     if (ids.length >= MAX_TITLES) break;
   }

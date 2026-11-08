@@ -20,6 +20,10 @@ export type TmdbResult = {
   runtime?: number;
   episode_run_time?: number[];
   number_of_episodes?: number;
+  poster_path?: string | null;
+  created_by?: { name?: string }[];
+  credits?: { crew?: { job?: string; name?: string }[] };
+  last_episode_to_air?: { runtime?: number };
 };
 
 export type TmdbRequester = (path: string) => Promise<unknown>;
@@ -82,13 +86,14 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
   const timing = timingFor(raw, media);
   const year = yearFrom(media === "movie" ? raw.release_date : raw.first_air_date);
   const overview = (raw.overview ?? "").replace(/\s+/g, " ").trim();
+  const posterUrl = posterUrlFrom(raw.poster_path);
 
   return {
     id: `tmdb-${media}-${raw.id}`,
     name,
     year,
     kind,
-    creator: "Listed on TMDB",
+    creator: creatorFrom(raw, media),
     language: LANG[languageCode] ?? languageCode.toUpperCase(),
     synopsis: overview ? clip(overview, 320) : "No synopsis was included for this title.",
     highlights: [
@@ -106,6 +111,7 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
     mark: markFrom(name),
     aliases: [],
     fits: inferFits(genreIds, pacing),
+    ...(posterUrl ? { posterUrl } : {}),
   };
 }
 
@@ -194,6 +200,24 @@ function inferIntensity(pacing: Pacing, genreIds: readonly number[]): number {
   return value;
 }
 
+function creatorFrom(raw: TmdbResult, media: "movie" | "tv"): string {
+  const names =
+    media === "tv"
+      ? (raw.created_by ?? []).map((person) => person.name)
+      : (raw.credits?.crew ?? []).filter((person) => person.job === "Director").map((person) => person.name);
+  const cleaned = names
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => name.replace(/[\u0000-\u001F]/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  return cleaned.length > 0 ? cleaned.join(", ") : "Listed on TMDB";
+}
+
+export function posterUrlFrom(path: string | null | undefined): string | undefined {
+  if (!path || path.includes("..") || path.includes("//") || !/^\/[A-Za-z0-9._-]{1,180}$/.test(path)) return undefined;
+  return `https://image.tmdb.org/t/p/w342${path}`;
+}
+
 function sittingMinutes(raw: TmdbResult, media: "movie" | "tv"): number {
   if (media === "movie") return raw.runtime && raw.runtime > 0 ? raw.runtime : 0;
   return raw.episode_run_time?.find((value) => value > 0) ?? 0;
@@ -204,7 +228,7 @@ function timingFor(raw: TmdbResult, media: "movie" | "tv"): Pick<Title, "runtime
     const runtime = raw.runtime && raw.runtime > 0 ? raw.runtime : 0;
     return { runtimeMinutes: runtime, approximate: runtime === 0 };
   }
-  const episodeMinutes = raw.episode_run_time?.find((value) => value > 0) ?? 0;
+  const episodeMinutes = raw.episode_run_time?.find((value) => value > 0) ?? raw.last_episode_to_air?.runtime ?? 0;
   const episodeCount = raw.number_of_episodes && raw.number_of_episodes > 0 ? raw.number_of_episodes : 0;
   if (episodeMinutes && episodeCount) {
     return {

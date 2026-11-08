@@ -210,7 +210,11 @@ export function Comparison({
           );
         })}
       </div>
-      <p className="shelf-note">Editorial scores, written for this shelf. Not a live critic or audience feed.</p>
+      <p className="shelf-note">
+        {titles.some((title) => title.id.startsWith("tmdb-"))
+          ? "Titles from TMDB use that user score on both axes. Vibe, pacing, and mood fits are inferred from genres. Sample-shelf titles keep their editorial scores."
+          : "Editorial scores, written for this shelf. Not a live critic or audience feed."}
+      </p>
     </div>
   );
 }

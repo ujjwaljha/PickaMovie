@@ -18,6 +18,7 @@ export function Stage({
   focusToken,
   mode,
   suggestions,
+  liveMatches,
   onPreset,
   onRemove,
   onAdd,
@@ -29,9 +30,10 @@ export function Stage({
   focusToken: number;
   mode: "compare" | "similar";
   suggestions: SimilarHit[];
+  liveMatches: boolean;
   onPreset: (id: string) => void;
   onRemove: (id: string) => void;
-  onAdd: (id: string) => void;
+  onAdd: (title: Title) => void;
   onWeigh: () => void;
 }) {
   const verdict = ranked.find((item) => item.title.id === session.verdictId) ?? null;
@@ -40,7 +42,7 @@ export function Stage({
   return (
     <section className="stage" id="comparison">
       {mode === "similar" ? (
-        <SimilarList seeds={titles} hits={suggestions} onAdd={onAdd} />
+        <SimilarList seeds={titles} hits={suggestions} live={liveMatches} onAdd={onAdd} />
       ) : titles.length === 0 ? (
         <Hero onPreset={onPreset} />
       ) : (

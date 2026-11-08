@@ -39,6 +39,7 @@ describe("TMDB adapter", () => {
       audience: 85,
       language: "Japanese",
     });
+    expect(title?.posterUrl).toBeUndefined();
     expect(title?.vibeTags).toContain("Epic");
     expect(title?.fits.group).toBeGreaterThan(70);
   });
@@ -51,6 +52,18 @@ describe("TMDB adapter", () => {
     expect(title?.runtimeMinutes).toBe(62 * 48);
     expect(title?.approximate).toBe(true);
     expect(title?.year).toBe(2008);
+  });
+
+  it("keeps a TMDB poster path and a director, and drops a foreign image URL", () => {
+    const title = mapTmdbTitle({
+      ...spirited,
+      poster_path: "/spirited.jpg",
+      credits: { crew: [{ job: "Director", name: "Hayao Miyazaki" }] },
+    });
+    expect(title?.posterUrl).toBe("https://image.tmdb.org/t/p/w342/spirited.jpg");
+    expect(title?.creator).toBe("Hayao Miyazaki");
+    expect(mapTmdbTitle({ ...spirited, poster_path: "https://evil.example/x.jpg" })?.posterUrl).toBeUndefined();
+    expect(mapTmdbTitle({ ...spirited, poster_path: "/../secret.jpg" })?.posterUrl).toBeUndefined();
   });
 
   it("skips people and nameless rows", () => {

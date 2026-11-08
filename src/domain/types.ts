@@ -52,4 +52,6 @@ export type Title = {
   mark: string;
   aliases: string[];
   fits: Fits;
+  /** TMDB poster, only when it is an image.tmdb.org URL. */
+  posterUrl?: string;
 };

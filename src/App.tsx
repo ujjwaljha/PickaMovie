@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PRESETS } from "./data/presets";
 import { rankPool } from "./domain/scoring";
-import { similarTo } from "./domain/similar";
+import { similarTo, type SimilarHit } from "./domain/similar";
 import { joinNames } from "./domain/format";
 import { actingPerson, voters } from "./domain/session";
+import type { Title } from "./domain/types";
 import { FilterBar } from "./components/FilterBar";
 import { GroupPanel } from "./components/GroupPanel";
 import { Header } from "./components/Header";
@@ -12,16 +13,76 @@ import { Shortlist } from "./components/Shortlist";
 import { Stage } from "./components/Stage";
 import { useSession } from "./hooks/useSession";
 import { catalog } from "./services/catalog";
+import { loadLibrary, remember, saveLibrary } from "./services/library";
+import { loadLiveTitles, probeCatalog, recommendLive, type CatalogMode } from "./services/liveCatalog";
 
 export function App() {
   const { session, saved, notice, dispatch, addTitle } = useSession();
   const [focusToken, setFocusToken] = useState(0);
   const [mode, setMode] = useState<"compare" | "similar">("compare");
+  const [catalogMode, setCatalogMode] = useState<CatalogMode>("shelf");
+  const [library, setLibrary] = useState<Record<string, Title>>(() => loadLibrary(window.localStorage));
+  const [remoteHits, setRemoteHits] = useState<SimilarHit[] | null>(null);
   const revealOnMobile = useRef(false);
-  const titles = catalog.getMany(session.order);
+  const titles = useMemo(
+    () =>
+      session.order.flatMap((id) => {
+        const title = library[id] ?? catalog.get(id);
+        return title ? [title] : [];
+      }),
+    [library, session.order],
+  );
   const person = actingPerson(session);
   const ranked = useMemo(() => rankPool(titles, voters(session)), [titles, session]);
-  const suggestions = useMemo(() => (mode === "similar" ? similarTo(titles, catalog.all()) : []), [mode, titles]);
+  const shelfHits = useMemo(() => (mode === "similar" ? similarTo(titles, catalog.all()) : []), [mode, titles]);
+  const suggestions = remoteHits ?? shelfHits;
+  const catalogLive = catalogMode === "live";
+  const titleKey = titles.map((title) => title.id).join(".");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void probeCatalog(controller.signal).then((next) => {
+      if (!controller.signal.aborted) setCatalogMode(next);
+    });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    saveLibrary(window.localStorage, library);
+  }, [library]);
+
+  useEffect(() => {
+    const missing = session.order.filter((id) => id.startsWith("tmdb-") && !library[id]);
+    if (missing.length === 0) return;
+    const controller = new AbortController();
+    void loadLiveTitles(missing, controller.signal).then((found) => {
+      if (controller.signal.aborted || found.length === 0) return;
+      setLibrary((current) => remember(current, found, session.order));
+    });
+    return () => controller.abort();
+  }, [library, session.order]);
+
+  useEffect(() => {
+    if (mode !== "similar" || !catalogLive) {
+      setRemoteHits(null);
+      return;
+    }
+    const seeds = titles.filter((title) => title.id.startsWith("tmdb-"));
+    if (seeds.length === 0) {
+      setRemoteHits(null);
+      return;
+    }
+    const controller = new AbortController();
+    void recommendLive(
+      seeds.map((title) => title.id),
+      controller.signal,
+    ).then((pool) => {
+      if (controller.signal.aborted || !pool) return;
+      const scored = similarTo(titles, pool);
+      setRemoteHits(scored.length > 0 ? scored : pool.slice(0, 6).map((title) => ({ title, score: title.audience, reasons: ["Recommended on TMDB for a title you named"] })));
+    });
+    return () => controller.abort();
+  }, [catalogLive, mode, titleKey, titles]);
 
   useEffect(() => {
     if (!revealOnMobile.current) return;
@@ -42,9 +103,20 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const acceptTitle = (title: Title) => {
+    setLibrary((current) => remember(current, [title], [...session.order, title.id]));
+    revealOnMobile.current = true;
+    addTitle(title.id);
+    if (!title.id.startsWith("tmdb-")) return;
+    void loadLiveTitles([title.id]).then((found) => {
+      if (found.length === 0) return;
+      setLibrary((current) => remember(current, found, [...session.order, title.id]));
+    });
+  };
+
   const weigh = () => {
     if (titles.length < 2) return;
-    dispatch({ type: "weigh" });
+    dispatch({ type: "weigh", titles });
     setFocusToken((value) => value + 1);
   };
 
@@ -72,11 +144,9 @@ export function App() {
           </div>
           <SearchBox
             session={session}
+            catalogLive={catalogLive}
             label={mode === "similar" && !session.groupMode ? "Name a title you like" : undefined}
-            onAdd={(id) => {
-              revealOnMobile.current = true;
-              addTitle(id);
-            }}
+            onAdd={acceptTitle}
           />
           {notice ? (
             <p className="notice" role="status">
@@ -85,7 +155,9 @@ export function App() {
           ) : null}
           <p className="hint">
             {mode === "similar"
-              ? "Name a few titles you already like. More like these stays on this shelf."
+              ? catalogLive
+                ? "Name a few titles you already like. Catalog titles bring recommendations. Shelf titles match inside the sample shelf."
+                : "Name a few titles you already like. More like these stays on this shelf."
               : session.groupMode
                 ? `Search adds to ${person.name}. Weigh and pick balances every mood on the couch.`
                 : "Set the clock, the energy, and the company. Then put two or more titles side by side."}
@@ -135,23 +207,27 @@ export function App() {
           focusToken={focusToken}
           mode={mode}
           suggestions={suggestions}
+          liveMatches={remoteHits !== null}
           onPreset={(presetId) => {
             revealOnMobile.current = true;
             dispatch({ type: "load-preset", presetId });
           }}
           onRemove={(titleId) => dispatch({ type: "remove", titleId })}
-          onAdd={(titleId) => {
-            revealOnMobile.current = true;
-            addTitle(titleId);
-          }}
+          onAdd={acceptTitle}
           onWeigh={weigh}
         />
       </main>
       <footer className="mx-auto w-full max-w-[88rem] px-4 pb-16 pt-4">
         <p>
-          {catalog.label} of {catalog.all().length} titles. Scores, vibes, and mood fits are curated so a decision works with no account and no network.
+          {catalogLive
+            ? `Search covers the TMDB catalog, with posters. The sample shelf of ${catalog.all().length} titles stays available for the toss-ups. This product uses the TMDB API but is not endorsed or certified by TMDB.`
+            : `${catalog.label} of ${catalog.all().length} titles. Scores, vibes, and mood fits are curated so a decision works before a catalog key is set.`}
         </p>
-        <p>Your shortlist, moods, and couch mates stay in this browser. A refresh keeps them. Nothing is sent anywhere.</p>
+        <p>
+          {catalogLive
+            ? "Your shortlist, moods, and couch mates stay in this browser. A search query is sent to this app so it can ask TMDB. The shortlist itself is not uploaded."
+            : "Your shortlist, moods, and couch mates stay in this browser. A refresh keeps them. Nothing is sent anywhere."}
+        </p>
         <p className="footer-credit">
           {session.groupMode ? `On the couch: ${joinNames(session.people.map((person) => person.name))}.` : "Watching solo."}
         </p>
