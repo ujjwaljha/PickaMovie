@@ -6,6 +6,7 @@ import { youPerson, type Person, type Session } from "../domain/session";
 import type { Filters, Title } from "../domain/types";
 import type { SimilarHit } from "../domain/similar";
 import { catalog } from "../services/catalog";
+import { CatalogRail } from "./CatalogRail";
 import { Comparison } from "./Comparison";
 import { Meter } from "./Meter";
 import { Poster } from "./Poster";
@@ -19,6 +20,7 @@ export function Stage({
   mode,
   suggestions,
   liveMatches,
+  discover,
   onPreset,
   onRemove,
   onAdd,
@@ -31,6 +33,7 @@ export function Stage({
   mode: "compare" | "similar";
   suggestions: SimilarHit[];
   liveMatches: boolean;
+  discover: Title[];
   onPreset: (id: string) => void;
   onRemove: (id: string) => void;
   onAdd: (title: Title) => void;
@@ -44,7 +47,7 @@ export function Stage({
       {mode === "similar" ? (
         <SimilarList seeds={titles} hits={suggestions} live={liveMatches} onAdd={onAdd} />
       ) : titles.length === 0 ? (
-        <Hero onPreset={onPreset} />
+        <Hero discover={discover} onAdd={onAdd} onPreset={onPreset} />
       ) : (
         <>
           <div className="stage-head">
@@ -74,6 +77,7 @@ export function Stage({
             moodLabel={moodLabel(session)}
             onRemove={onRemove}
           />
+          <CatalogRail titles={discover} onAdd={onAdd} />
         </>
       )}
     </section>
@@ -89,7 +93,15 @@ function moodLabel(session: Session): string {
   return person.id === "you" ? "your mood" : `${person.name}'s mood`;
 }
 
-function Hero({ onPreset }: { onPreset: (id: string) => void }) {
+function Hero({
+  discover,
+  onAdd,
+  onPreset,
+}: {
+  discover: Title[];
+  onAdd: (title: Title) => void;
+  onPreset: (id: string) => void;
+}) {
   return (
     <div className="hero">
       <p className="eyebrow">No account. No continue-watching pile.</p>
@@ -97,6 +109,7 @@ function Hero({ onPreset }: { onPreset: (id: string) => void }) {
       <p className="lede">
         Movies, series, anime, and animation, lined up on the only things that matter tonight: how long it takes, how it feels, and who is in the room.
       </p>
+      <CatalogRail titles={discover} onAdd={onAdd} />
       <div className="preset-grid">
         {PRESETS.map((preset) => {
           const titles = catalog.getMany(preset.titleIds);

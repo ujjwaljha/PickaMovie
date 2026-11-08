@@ -17,7 +17,13 @@ export async function searchLive(query: string, signal?: AbortSignal): Promise<T
   const body = await read(`/api/catalog?op=search&q=${encodeURIComponent(query)}`, signal);
   if (!body) return null;
   if (body.configured !== true) return null;
-  return titlesFromPayload(body.payload).slice(0, 8);
+  return titlesFromPayload(body.payload).slice(0, 16);
+}
+
+export async function loadBrowse(signal?: AbortSignal): Promise<Title[] | null> {
+  const body = await read("/api/catalog?op=browse", signal);
+  if (!body || body.configured !== true) return null;
+  return titlesFromPayload(body.payload);
 }
 
 export async function loadLiveTitles(ids: readonly string[], signal?: AbortSignal): Promise<Title[]> {

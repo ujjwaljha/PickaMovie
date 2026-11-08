@@ -31,7 +31,7 @@ src/
 api/catalog.ts             the published route that runs the proxy
 ```
 
-Search uses TMDB when the server has `TMDB_API_KEY`. The browser calls `/api/catalog` only. The key stays on the server. Posters are loaded from `image.tmdb.org`. Without the key, search stays on the editorial sample shelf and nothing is sent off the device.
+Search and the home rail use TMDB when the server has `TMDB_API_KEY`. The browser calls `/api/catalog` only. That route loads trending, popular movies, and popular series, then the full credit and runtime record when a title is added. The key stays on the server. Posters are loaded from `image.tmdb.org`. Without the key, the app stays on the editorial sample shelf and nothing is sent off the device.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB. Scores on catalog titles are the TMDB user score on both axes. Vibe, pacing, and mood fits are inferred from genres. Sample-shelf scores stay editorial.
 

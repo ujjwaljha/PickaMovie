@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import handler from "../../api/catalog";
 import { allowedTmdbPath, GET, resetCatalogLimits } from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
@@ -16,6 +17,7 @@ afterEach(() => {
 describe("TMDB catalog route", () => {
   it("builds only fixed TMDB paths", () => {
     expect(allowedTmdbPath("https://app.example/api/catalog?op=status")).toBe("");
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=browse")).toBe("");
     expect(allowedTmdbPath("https://app.example/api/catalog?op=search&q=spirited%20away")).toBe(
       "/3/search/multi?query=spirited%20away&include_adult=false&language=en-US",
     );
@@ -94,5 +96,55 @@ describe("TMDB catalog route", () => {
     expect(blocked.status).toBe(429);
     expect(calls).toBe(40);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
+  });
+
+  it("merges the home lists, drops people, and keeps the key upstream", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      const url = String(input);
+      if (url.includes("/trending/")) {
+        return Response.json({
+          results: [
+            { id: 129, media_type: "movie", title: "Spirited Away", poster_path: "/spirited.jpg", vote_count: 12000, genre_ids: [16] },
+            { id: 9, media_type: "person", name: "Someone" },
+            { id: 129, media_type: "movie", title: "Spirited Away", poster_path: "https://evil.example/x.jpg" },
+          ],
+        });
+      }
+      if (url.includes("/movie/popular")) {
+        return Response.json({ results: [{ id: 129, title: "Spirited Away", poster_path: "/spirited.jpg" }] });
+      }
+      return Response.json({
+        results: [{ id: 1396, name: "Breaking Bad", poster_path: "/bb.jpg", vote_average: 8.9 }],
+      });
+    };
+    const response = await GET(new Request("https://app.example/api/catalog?op=browse"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("max-age=3600");
+    expect(calls).toHaveLength(3);
+    expect(calls.every((call) => call.startsWith("https://api.themoviedb.org/3/") && call.includes("api_key=shelf-test-key"))).toBe(true);
+    expect(body.payload.results.map((item: { id: number; media_type: string; poster_path: string | null }) => [item.media_type, item.id, item.poster_path])).toEqual([
+      ["movie", 129, "/spirited.jpg"],
+      ["tv", 1396, "/bb.jpg"],
+    ]);
+    expect(JSON.stringify(body)).not.toContain("shelf-test-key");
+    expect(JSON.stringify(body)).not.toContain("evil.example");
+  });
+
+  it("answers the host's Node-style call", async () => {
+    let body = "";
+    const res = {
+      statusCode: 0,
+      setHeader() {},
+      end(value?: string) {
+        body = value ?? "";
+      },
+    };
+    await handler({ url: "/api/catalog?op=status", method: "GET", headers: { host: "app.example" } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(body).toContain('"configured":false');
   });
 });

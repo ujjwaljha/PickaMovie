@@ -14,7 +14,7 @@ import { Stage } from "./components/Stage";
 import { useSession } from "./hooks/useSession";
 import { catalog } from "./services/catalog";
 import { loadLibrary, remember, saveLibrary } from "./services/library";
-import { loadLiveTitles, probeCatalog, recommendLive, type CatalogMode } from "./services/liveCatalog";
+import { loadBrowse, loadLiveTitles, probeCatalog, recommendLive, type CatalogMode } from "./services/liveCatalog";
 
 export function App() {
   const { session, saved, notice, dispatch, addTitle } = useSession();
@@ -23,6 +23,7 @@ export function App() {
   const [catalogMode, setCatalogMode] = useState<CatalogMode>("shelf");
   const [library, setLibrary] = useState<Record<string, Title>>(() => loadLibrary(window.localStorage));
   const [remoteHits, setRemoteHits] = useState<SimilarHit[] | null>(null);
+  const [discover, setDiscover] = useState<Title[]>([]);
   const revealOnMobile = useRef(false);
   const titles = useMemo(
     () =>
@@ -46,6 +47,15 @@ export function App() {
     });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!catalogLive) return;
+    const controller = new AbortController();
+    void loadBrowse(controller.signal).then((found) => {
+      if (!controller.signal.aborted && found && found.length > 0) setDiscover(found);
+    });
+    return () => controller.abort();
+  }, [catalogLive]);
 
   useEffect(() => {
     saveLibrary(window.localStorage, library);
@@ -145,6 +155,7 @@ export function App() {
           <SearchBox
             session={session}
             catalogLive={catalogLive}
+            discover={discover}
             label={mode === "similar" && !session.groupMode ? "Name a title you like" : undefined}
             onAdd={acceptTitle}
           />
@@ -208,6 +219,7 @@ export function App() {
           mode={mode}
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
+          discover={discover}
           onPreset={(presetId) => {
             revealOnMobile.current = true;
             dispatch({ type: "load-preset", presetId });
@@ -220,7 +232,7 @@ export function App() {
       <footer className="mx-auto w-full max-w-[88rem] px-4 pb-16 pt-4">
         <p>
           {catalogLive
-            ? `Search covers the TMDB catalog, with posters. The sample shelf of ${catalog.all().length} titles stays available for the toss-ups. This product uses the TMDB API but is not endorsed or certified by TMDB.`
+            ? `The screen loads current movies and series from TMDB, with posters, scores, cast, and the other details TMDB publishes. Toss-ups still use the sample shelf of ${catalog.all().length} titles. This product uses the TMDB API but is not endorsed or certified by TMDB.`
             : `${catalog.label} of ${catalog.all().length} titles. Scores, vibes, and mood fits are curated so a decision works before a catalog key is set.`}
         </p>
         <p>

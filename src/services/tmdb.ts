@@ -21,9 +21,12 @@ export type TmdbResult = {
   episode_run_time?: number[];
   number_of_episodes?: number;
   poster_path?: string | null;
+  vote_count?: number;
+  tagline?: string;
   created_by?: { name?: string }[];
-  credits?: { crew?: { job?: string; name?: string }[] };
+  credits?: { crew?: { job?: string; name?: string }[]; cast?: { name?: string; order?: number }[] };
   last_episode_to_air?: { runtime?: number };
+  number_of_seasons?: number;
 };
 
 export type TmdbRequester = (path: string) => Promise<unknown>;
@@ -87,20 +90,18 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
   const year = yearFrom(media === "movie" ? raw.release_date : raw.first_air_date);
   const overview = (raw.overview ?? "").replace(/\s+/g, " ").trim();
   const posterUrl = posterUrlFrom(raw.poster_path);
+  const creator = creatorFrom(raw, media);
 
   return {
     id: `tmdb-${media}-${raw.id}`,
     name,
     year,
     kind,
-    creator: creatorFrom(raw, media),
+    creator,
     language: LANG[languageCode] ?? languageCode.toUpperCase(),
     synopsis: overview ? clip(overview, 320) : "No synopsis was included for this title.",
-    highlights: [
-      "User score is the only rating in this feed, so both axes match.",
-      "Vibe, pacing, and mood fits are inferred from genres.",
-    ],
-    vibeTags: inferVibes(genreIds),
+    highlights: detailLines(raw, creator),
+    vibeTags: genreNames(raw) ?? inferVibes(genreIds),
     critic: score,
     audience: score,
     pacing,
@@ -198,6 +199,34 @@ function inferIntensity(pacing: Pacing, genreIds: readonly number[]): number {
   let value = { background: 2, easy: 4, engaged: 6, demanding: 8 }[pacing];
   if (genreIds.includes(27) || genreIds.includes(10752)) value = Math.min(10, value + 1);
   return value;
+}
+
+function genreNames(raw: TmdbResult): string[] | null {
+  const names = (raw.genres ?? [])
+    .map((genre) => genre.name?.replace(/[\u0000-\u001F]/g, "").trim() ?? "")
+    .filter((name) => name.length > 0 && name.length <= 32);
+  const unique = names.filter((name, index) => names.indexOf(name) === index).slice(0, 4);
+  return unique.length > 0 ? unique : null;
+}
+
+function detailLines(raw: TmdbResult, creator: string): [string, string] {
+  const ratings =
+    raw.vote_count && raw.vote_count > 0
+      ? `TMDB user score, from ${groupCount(raw.vote_count)} ratings.`
+      : "TMDB user score is the only rating in this feed, so both axes match.";
+  const cast = (raw.credits?.cast ?? [])
+    .map((person) => person.name?.replace(/[\u0000-\u001F]/g, "").trim() ?? "")
+    .filter(Boolean)
+    .slice(0, 3);
+  const seasons = raw.number_of_seasons && raw.number_of_seasons > 0 ? `${raw.number_of_seasons} seasons listed.` : "";
+  const people = cast.length > 0 ? `With ${cast.join(", ")}.` : seasons || (creator === "Listed on TMDB" ? "Vibe and mood fits are inferred from genres." : creator);
+  return [ratings, people];
+}
+
+function groupCount(value: number): string {
+  return Math.round(value)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function creatorFrom(raw: TmdbResult, media: "movie" | "tv"): string {

@@ -62,8 +62,25 @@ describe("TMDB adapter", () => {
     });
     expect(title?.posterUrl).toBe("https://image.tmdb.org/t/p/w342/spirited.jpg");
     expect(title?.creator).toBe("Hayao Miyazaki");
+    expect(title?.highlights[1]).toBe("Hayao Miyazaki");
     expect(mapTmdbTitle({ ...spirited, poster_path: "https://evil.example/x.jpg" })?.posterUrl).toBeUndefined();
     expect(mapTmdbTitle({ ...spirited, poster_path: "/../secret.jpg" })?.posterUrl).toBeUndefined();
+  });
+
+  it("uses the published genre names, rating count, and cast", () => {
+    const title = mapTmdbTitle({
+      ...breaking,
+      vote_count: 15432,
+      genres: [
+        { id: 18, name: "Drama" },
+        { id: 80, name: "Crime" },
+      ],
+      credits: { cast: [{ name: "Bryan Cranston", order: 0 }, { name: "Aaron Paul", order: 1 }] },
+      number_of_seasons: 5,
+    });
+    expect(title?.vibeTags).toEqual(["Drama", "Crime"]);
+    expect(title?.highlights[0]).toBe("TMDB user score, from 15,432 ratings.");
+    expect(title?.highlights[1]).toBe("With Bryan Cranston, Aaron Paul.");
   });
 
   it("skips people and nameless rows", () => {

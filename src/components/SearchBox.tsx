@@ -14,11 +14,13 @@ export function SearchBox({
   onAdd,
   label,
   catalogLive,
+  discover,
 }: {
   session: Session;
   onAdd: (title: Title) => void;
   label?: string;
   catalogLive: boolean;
+  discover: Title[];
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -29,7 +31,8 @@ export function SearchBox({
   const listId = useId();
   const shelf = useMemo(() => catalog.search(query), [query]);
   const usingRemote = catalogLive && query.trim().length >= 2 && remote !== null;
-  const results = usingRemote ? remote : shelf;
+  const browsing = catalogLive && query.trim().length < 2 && discover.length > 0;
+  const results = usingRemote ? remote : browsing ? discover.slice(0, 12) : shelf;
   const person = actingPerson(session);
   const safeActive = results.length === 0 ? 0 : Math.min(active, results.length - 1);
 
@@ -129,7 +132,7 @@ export function SearchBox({
       {open ? (
         <div className="results">
           <p className="results-label">
-            {searching ? "Searching the catalog…" : usingRemote ? "From the catalog" : query.trim() ? "Matches" : "From the shelf"}
+            {searching ? "Searching the catalog…" : usingRemote || browsing ? "From the catalog" : query.trim() ? "Matches" : "From the shelf"}
           </p>
           {results.length === 0 ? (
             <p className="results-empty">
