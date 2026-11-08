@@ -137,21 +137,13 @@ export function App() {
       <a className="skip" href="#comparison">
         Skip to comparison
       </a>
-      <Header saved={saved} onClear={() => dispatch({ type: "reset" })} />
+      <Header
+        saved={saved}
+        question={mode === "similar" ? "What do you already like?" : "What are we deciding?"}
+        onClear={() => dispatch({ type: "reset" })}
+      />
       <main className="mx-auto grid w-full max-w-[88rem] gap-8 px-4 py-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
-        <section className="console" aria-label="Build the shortlist">
-          <div>
-            <p className="eyebrow">The table</p>
-            <h2 className="console-title">{mode === "similar" ? "What do you already like?" : "What are we deciding?"}</h2>
-          </div>
-          <div className="mode-switch" role="tablist" aria-label="What to do with the titles">
-            <button type="button" role="tab" aria-selected={mode === "compare"} onClick={() => setMode("compare")}>
-              Compare
-            </button>
-            <button type="button" role="tab" aria-selected={mode === "similar"} onClick={() => setMode("similar")}>
-              More like these
-            </button>
-          </div>
+        <section className="console" aria-label="Filters and shortlist">
           <SearchBox
             session={session}
             catalogLive={catalogLive}
@@ -217,6 +209,7 @@ export function App() {
           ranked={ranked}
           focusToken={focusToken}
           mode={mode}
+          onMode={setMode}
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
           discover={discover}

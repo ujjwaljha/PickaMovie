@@ -18,6 +18,7 @@ export function Stage({
   ranked,
   focusToken,
   mode,
+  onMode,
   suggestions,
   liveMatches,
   discover,
@@ -31,6 +32,7 @@ export function Stage({
   ranked: RankedTitle[];
   focusToken: number;
   mode: "compare" | "similar";
+  onMode: (mode: "compare" | "similar") => void;
   suggestions: SimilarHit[];
   liveMatches: boolean;
   discover: Title[];
@@ -42,22 +44,27 @@ export function Stage({
   const verdict = ranked.find((item) => item.title.id === session.verdictId) ?? null;
   const filters = youPerson(session).filters;
 
+  const stageTitle = mode === "similar" ? "More like these" : titles.length === 0 ? "The table" : "Side by side";
+
   return (
     <section className="stage" id="comparison">
+      <div className="stage-head">
+        <h2>{stageTitle}</h2>
+        <div className="stage-actions">
+          <ModeSwitch mode={mode} onMode={onMode} />
+          {mode === "compare" && titles.length > 1 ? (
+            <button type="button" className="btn btn-primary" onClick={onWeigh}>
+              Weigh and pick
+            </button>
+          ) : null}
+        </div>
+      </div>
       {mode === "similar" ? (
         <SimilarList seeds={titles} hits={suggestions} live={liveMatches} onAdd={onAdd} />
       ) : titles.length === 0 ? (
         <Hero discover={discover} onAdd={onAdd} onPreset={onPreset} />
       ) : (
         <>
-          <div className="stage-head">
-            <h1>Side by side</h1>
-            {titles.length > 1 ? (
-              <button type="button" className="btn btn-primary" onClick={onWeigh}>
-                Weigh and pick
-              </button>
-            ) : null}
-          </div>
           {verdict ? (
             <Ticket
               focusToken={focusToken}
@@ -84,6 +91,19 @@ export function Stage({
   );
 }
 
+function ModeSwitch({ mode, onMode }: { mode: "compare" | "similar"; onMode: (mode: "compare" | "similar") => void }) {
+  return (
+    <div className="mode-switch" role="tablist" aria-label="What to do with the titles">
+      <button type="button" role="tab" aria-selected={mode === "compare"} onClick={() => onMode("compare")}>
+        Compare
+      </button>
+      <button type="button" role="tab" aria-selected={mode === "similar"} onClick={() => onMode("similar")}>
+        More like these
+      </button>
+    </div>
+  );
+}
+
 function actingFilters(session: Session): Filters {
   return session.people.find((person) => person.id === session.activePersonId)?.filters ?? youPerson(session).filters;
 }
@@ -105,7 +125,7 @@ function Hero({
   return (
     <div className="hero">
       <p className="eyebrow">No account. No continue-watching pile.</p>
-      <h1>Put a few titles on the table.</h1>
+      <h2>Put a few titles on the table.</h2>
       <p className="lede">
         Movies, series, anime, and animation, lined up on the only things that matter tonight: how long it takes, how it feels, and who is in the room.
       </p>

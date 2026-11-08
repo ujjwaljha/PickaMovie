@@ -19,7 +19,7 @@ export function SimilarList({
     return (
       <div className="hero">
         <p className="eyebrow">More like these</p>
-        <h1>Name a few you already like.</h1>
+        <h2>Name a few you already like.</h2>
         <p className="lede">
           Search two or three titles. The closest neighbors on this shelf show up here, matched on vibe, pace, and mood.
         </p>
@@ -29,9 +29,6 @@ export function SimilarList({
 
   return (
     <div className="similar">
-      <div className="stage-head">
-        <h1>More like these</h1>
-      </div>
       <p className="lede">Because you named {joinNames(seeds.map((seed) => seed.name))}.</p>
       {hits.length === 0 ? (
         <p className="hint">Nothing else on this shelf sits close to that mix.</p>

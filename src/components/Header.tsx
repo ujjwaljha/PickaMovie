@@ -1,12 +1,12 @@
 import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 
-export function Header({ saved, onClear }: { saved: boolean; onClear: () => void }) {
+export function Header({ saved, question, onClear }: { saved: boolean; question: string; onClear: () => void }) {
   const [confirming, setConfirming] = useState(false);
 
   return (
     <header className="site-header">
-      <div className="mx-auto flex w-full max-w-[88rem] items-center justify-between gap-4 px-4 py-4">
+      <div className="header-bar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
             2
@@ -18,6 +18,7 @@ export function Header({ saved, onClear }: { saved: boolean; onClear: () => void
             <p className="tagline">Decide, then press play.</p>
           </div>
         </div>
+        <h1 className="header-question">{question}</h1>
         <div className="header-actions">
           <p className={saved ? "saved is-fresh" : "saved"} role="status">
             {saved ? "Saved" : "On this device"}
