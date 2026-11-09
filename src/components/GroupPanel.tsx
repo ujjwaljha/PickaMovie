@@ -30,11 +30,11 @@ export function GroupPanel({
         onClick={() => (session.groupMode ? onDisable() : onEnable())}
       >
         <UserPlus size={16} aria-hidden="true" />
-        Add a friend's pick
+        Watching with friends?
       </button>
       {session.groupMode ? (
         <div className="group-body">
-          <p className="hint">Same screen, same couch. Each person keeps their own mood, then Weigh and pick finds the overlap.</p>
+          <p className="hint">Each person sets a mood. Help me pick looks for the overlap.</p>
           <ul className="person-list">
             {session.people.map((person) => (
               <li key={person.id}>

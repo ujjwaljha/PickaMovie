@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PRESETS } from "./data/presets";
 import { rankPool } from "./domain/scoring";
 import { similarTo, type SimilarHit } from "./domain/similar";
-import { joinNames } from "./domain/format";
+import { filterSummary } from "./domain/copy";
 import { actingPerson, voters } from "./domain/session";
 import type { Title } from "./domain/types";
 import { FilterBar } from "./components/FilterBar";
@@ -130,47 +130,68 @@ export function App() {
     setFocusToken((value) => value + 1);
   };
 
-  const legend = person.id === "you" ? "Your mood" : `${person.name}'s mood`;
+  const mood = filterSummary(person.filters);
+  const moodLabel = mood === "No preferences" ? "Set time and who's watching" : `Tonight: ${mood}`;
 
   return (
-    <div className={titles.length > 0 && mode === "compare" ? "app has-dock" : "app"}>
-      <a className="skip" href="#comparison">
-        Skip to comparison
+    <div className="app">
+      <a className="skip" href="#title-search">
+        Skip to search
       </a>
-      <Header
-        saved={saved}
-        question={mode === "similar" ? "What do you already like?" : "What are we deciding?"}
-        onClear={() => dispatch({ type: "reset" })}
-      />
-      <main className="mx-auto grid w-full max-w-[88rem] gap-8 px-4 py-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
-        <section className="console" aria-label="Filters and shortlist">
-          <SearchBox
-            session={session}
-            catalogLive={catalogLive}
-            discover={discover}
-            label={mode === "similar" && !session.groupMode ? "Name a title you like" : undefined}
-            onAdd={acceptTitle}
-            onRemove={(titleId) => dispatch({ type: "remove", titleId })}
-          />
-          {notice ? (
-            <p className="notice" role="status">
-              {notice}
-            </p>
-          ) : null}
-          <p className="hint">
-            {mode === "similar"
-              ? catalogLive
-                ? "Name a few titles you already like. Catalog titles bring recommendations. Shelf titles match inside the sample shelf."
-                : "Name a few titles you already like. More like these stays on this shelf."
-              : session.groupMode
-                ? `Search adds to ${person.name}. Weigh and pick balances every mood on the couch.`
-                : "Set the clock, the energy, and the company. Then put two or more titles side by side."}
+      <Header saved={saved} canClear={titles.length > 0 || session.groupMode} onClear={() => dispatch({ type: "reset" })} />
+      <main className="page">
+        {titles.length === 0 && mode === "compare" ? <p className="intro">Search a movie or series, or tap a poster. Add two and we will help you choose.</p> : null}
+        <SearchBox
+          session={session}
+          catalogLive={catalogLive}
+          discover={discover}
+          label={mode === "similar" ? "Name something you like" : "Search a movie or series"}
+          onAdd={acceptTitle}
+          onRemove={(titleId) => dispatch({ type: "remove", titleId })}
+        />
+        {notice ? (
+          <p className="notice" role="status">
+            {notice}
           </p>
-          <FilterBar
-            filters={person.filters}
-            legend={legend}
-            onChange={(filters) => dispatch({ type: "set-filters", filters })}
-          />
+        ) : null}
+        {titles.length > 0 ? (
+          <section className="picks" aria-label="Your picks">
+            <div className="picks-head">
+              <h2>
+                Your picks <span>{titles.length}/4</span>
+              </h2>
+              <div className="stage-actions">
+                {mode === "compare" && titles.length > 1 ? (
+                  <button type="button" className="btn btn-primary" onClick={weigh}>
+                    Help me pick
+                  </button>
+                ) : null}
+                <button type="button" className="btn btn-ghost" onClick={() => setMode(mode === "similar" ? "compare" : "similar")}>
+                  {mode === "similar" ? "Back to your picks" : "More like these"}
+                </button>
+              </div>
+            </div>
+            {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more, then ask for a pick.</p> : null}
+            {mode === "similar" ? (
+              <Shortlist titles={titles} people={session.people} groupMode={session.groupMode} onRemove={(titleId) => dispatch({ type: "remove", titleId })} />
+            ) : null}
+          </section>
+        ) : null}
+        <Stage
+          session={session}
+          titles={titles}
+          ranked={ranked}
+          focusToken={focusToken}
+          mode={mode}
+          suggestions={suggestions}
+          liveMatches={remoteHits !== null}
+          discover={discover}
+          onRemove={(titleId) => dispatch({ type: "remove", titleId })}
+          onAdd={acceptTitle}
+        />
+        <details className="drawer">
+          <summary>{moodLabel}</summary>
+          <FilterBar filters={person.filters} legend={person.id === "you" ? "Tonight" : `${person.name} tonight`} onChange={(filters) => dispatch({ type: "set-filters", filters })} />
           <GroupPanel
             session={session}
             onEnable={() => {
@@ -183,72 +204,27 @@ export function App() {
             onRename={(personId, name) => dispatch({ type: "rename-person", personId, name })}
             onActivate={(personId) => dispatch({ type: "set-active", personId })}
           />
-          <Shortlist titles={titles} people={session.people} groupMode={session.groupMode} onRemove={(titleId) => dispatch({ type: "remove", titleId })} />
-          {titles.length > 0 ? (
-            <div className="toss-row">
-              <p>Or load a toss-up</p>
-              <div>
-                {PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      revealOnMobile.current = true;
-                      dispatch({ type: "load-preset", presetId: preset.id });
-                    }}
-                  >
-                    {preset.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
-        <Stage
-          session={session}
-          titles={titles}
-          ranked={ranked}
-          focusToken={focusToken}
-          mode={mode}
-          onMode={setMode}
-          suggestions={suggestions}
-          liveMatches={remoteHits !== null}
-          discover={discover}
-          onPreset={(presetId) => {
-            revealOnMobile.current = true;
-            dispatch({ type: "load-preset", presetId });
-          }}
-          onRemove={(titleId) => dispatch({ type: "remove", titleId })}
-          onAdd={acceptTitle}
-          onWeigh={weigh}
-        />
-      </main>
-      <footer className="mx-auto w-full max-w-[88rem] px-4 pb-16 pt-4">
-        <p>
-          {catalogLive
-            ? `The screen loads current movies and series from TMDB, with posters, scores, cast, and the other details TMDB publishes. Toss-ups still use the sample shelf of ${catalog.all().length} titles. This product uses the TMDB API but is not endorsed or certified by TMDB.`
-            : `${catalog.label} of ${catalog.all().length} titles. Scores, vibes, and mood fits are curated so a decision works before a catalog key is set.`}
-        </p>
-        <p>
-          {catalogLive
-            ? "Your shortlist, moods, and couch mates stay in this browser. A search query is sent to this app so it can ask TMDB. The shortlist itself is not uploaded."
-            : "Your shortlist, moods, and couch mates stay in this browser. A refresh keeps them. Nothing is sent anywhere."}
-        </p>
-        <p className="footer-credit">
-          {session.groupMode ? `On the couch: ${joinNames(session.people.map((person) => person.name))}.` : "Watching solo."}
-        </p>
-      </footer>
-      {titles.length > 0 && mode === "compare" ? (
-        <div className="dock">
-          {titles.length < 2 ? (
-            <p>Add one more title to compare.</p>
-          ) : (
-            <button type="button" className="btn btn-primary weigh-btn" onClick={weigh}>
-              Weigh and pick
+        </details>
+        <div className="preset-chips">
+          <p>Or start with a set</p>
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => {
+                revealOnMobile.current = true;
+                setMode("compare");
+                dispatch({ type: "load-preset", presetId: preset.id });
+              }}
+            >
+              {preset.title}
             </button>
-          )}
+          ))}
         </div>
-      ) : null}
+      </main>
+      <footer className="page-foot">
+        <p>{catalogLive ? "Posters and scores come from TMDB. Your picks stay on this device." : "This shelf is a sample until a catalog key is added. Your picks stay on this device."}</p>
+      </footer>
     </div>
   );
 }

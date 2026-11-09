@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { joinNames } from "../domain/format";
-import { MAX_TITLES, type Person } from "../domain/session";
+import type { Person } from "../domain/session";
 import type { Title } from "../domain/types";
 import { Poster } from "./Poster";
 
@@ -16,16 +16,8 @@ export function Shortlist({
   onRemove: (id: string) => void;
 }) {
   return (
-    <section className="shortlist" aria-label="Titles on the table">
-      <div className="section-row">
-        <h2>On the table</h2>
-        <span>
-          {titles.length}/{MAX_TITLES}
-        </span>
-      </div>
-      {titles.length === 0 ? (
-        <p className="hint">Search a title, or start from a toss-up.</p>
-      ) : (
+    <section className="shortlist" aria-label="Your picks">
+      {titles.length === 0 ? null : (
         <ul>
           {titles.map((title) => {
             const pickers = people.filter((person) => person.picks.includes(title.id));

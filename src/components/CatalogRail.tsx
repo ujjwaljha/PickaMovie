@@ -6,11 +6,13 @@ import { Poster } from "./Poster";
 export function CatalogRail({
   titles,
   pickedIds,
+  heading = "Tap a poster to add it",
   onAdd,
   onRemove,
 }: {
   titles: Title[];
   pickedIds: readonly string[];
+  heading?: string;
   onAdd: (title: Title) => void;
   onRemove: (id: string) => void;
 }) {
@@ -18,8 +20,7 @@ export function CatalogRail({
   const picked = new Set(pickedIds);
   return (
     <div className="rail-block">
-      <p className="eyebrow">In the catalog</p>
-      <h2>Movies and series playing now</h2>
+      <h2>{heading}</h2>
       <ul className="rail">
         {titles.map((title) => {
           const onTable = picked.has(title.id);

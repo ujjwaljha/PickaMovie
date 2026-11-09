@@ -1,11 +1,11 @@
-import { ArrowRight } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { PRESETS } from "../data/presets";
-import { narrateDecision, scoreTitle, type RankedTitle } from "../domain/scoring";
+import { KIND_LABEL } from "../domain/copy";
+import { sessionPlan } from "../domain/format";
+import { narrateDecision, type RankedTitle } from "../domain/scoring";
 import { youPerson, type Person, type Session } from "../domain/session";
 import type { Filters, Title } from "../domain/types";
 import type { SimilarHit } from "../domain/similar";
-import { catalog } from "../services/catalog";
 import { CatalogRail } from "./CatalogRail";
 import { Comparison } from "./Comparison";
 import { Meter } from "./Meter";
@@ -18,96 +18,102 @@ export function Stage({
   ranked,
   focusToken,
   mode,
-  onMode,
   suggestions,
   liveMatches,
   discover,
-  onPreset,
   onRemove,
   onAdd,
-  onWeigh,
 }: {
   session: Session;
   titles: Title[];
   ranked: RankedTitle[];
   focusToken: number;
   mode: "compare" | "similar";
-  onMode: (mode: "compare" | "similar") => void;
   suggestions: SimilarHit[];
   liveMatches: boolean;
   discover: Title[];
-  onPreset: (id: string) => void;
   onRemove: (id: string) => void;
   onAdd: (title: Title) => void;
-  onWeigh: () => void;
 }) {
   const verdict = ranked.find((item) => item.title.id === session.verdictId) ?? null;
   const filters = youPerson(session).filters;
-
-  const stageTitle = mode === "similar" ? "More like these" : titles.length === 0 ? "The table" : "Side by side";
+  const pickedIds = titles.map((title) => title.id);
 
   return (
     <section className="stage" id="comparison">
-      <div className="stage-head">
-        <h2>{stageTitle}</h2>
-        <div className="stage-actions">
-          <ModeSwitch mode={mode} onMode={onMode} />
-          {mode === "compare" && titles.length > 1 ? (
-            <button type="button" className="btn btn-primary" onClick={onWeigh}>
-              Weigh and pick
-            </button>
-          ) : null}
-        </div>
-      </div>
       {mode === "similar" ? (
-        <SimilarList
-          seeds={titles}
-          hits={suggestions}
-          live={liveMatches}
-          pickedIds={titles.map((title) => title.id)}
-          onAdd={onAdd}
-          onRemove={onRemove}
-        />
-      ) : titles.length === 0 ? (
-        <Hero discover={discover} pickedIds={titles.map((title) => title.id)} onAdd={onAdd} onRemove={onRemove} onPreset={onPreset} />
-      ) : (
+        <SimilarList seeds={titles} hits={suggestions} live={liveMatches} pickedIds={pickedIds} onAdd={onAdd} onRemove={onRemove} />
+      ) : titles.length > 0 ? (
         <>
           {verdict ? (
-            <Ticket
-              focusToken={focusToken}
-              ranked={ranked}
-              verdict={verdict}
-              filters={filters}
-              people={session.people}
-              groupMode={session.groupMode}
-            />
+            <Ticket focusToken={focusToken} ranked={ranked} verdict={verdict} filters={filters} people={session.people} groupMode={session.groupMode} />
           ) : null}
-          <Comparison
-            titles={titles}
-            ranked={ranked}
-            filters={session.groupMode ? actingFilters(session) : filters}
-            people={session.people}
-            groupMode={session.groupMode}
-            moodLabel={moodLabel(session)}
-            onRemove={onRemove}
-          />
-          <CatalogRail titles={discover} pickedIds={titles.map((title) => title.id)} onAdd={onAdd} onRemove={onRemove} />
+          <QuickLook titles={titles} ranked={ranked} filters={session.groupMode ? actingFilters(session) : filters} onRemove={onRemove} />
+          {titles.length > 1 ? (
+            <details className="drawer">
+              <summary>See the full comparison</summary>
+              <Comparison
+                titles={titles}
+                ranked={ranked}
+                filters={session.groupMode ? actingFilters(session) : filters}
+                people={session.people}
+                groupMode={session.groupMode}
+                moodLabel={moodLabel(session)}
+                onRemove={onRemove}
+              />
+            </details>
+          ) : null}
         </>
-      )}
+      ) : null}
+      {mode === "compare" ? (
+        <CatalogRail titles={discover} pickedIds={pickedIds} heading={titles.length > 0 ? "Add another" : "Tap a poster to add it"} onAdd={onAdd} onRemove={onRemove} />
+      ) : null}
     </section>
   );
 }
 
-function ModeSwitch({ mode, onMode }: { mode: "compare" | "similar"; onMode: (mode: "compare" | "similar") => void }) {
+function QuickLook({
+  titles,
+  ranked,
+  filters,
+  onRemove,
+}: {
+  titles: Title[];
+  ranked: RankedTitle[];
+  filters: Filters;
+  onRemove: (id: string) => void;
+}) {
+  const top = ranked[0]?.weigh.total ?? 0;
+  const leaderCount = ranked.filter((item) => item.weigh.total === top).length;
+  const showBest = titles.length > 1 && leaderCount < titles.length;
+  const fitOf = new Map(ranked.map((item) => [item.title.id, item.weigh.total]));
+
   return (
-    <div className="mode-switch" role="tablist" aria-label="What to do with the titles">
-      <button type="button" role="tab" aria-selected={mode === "compare"} onClick={() => onMode("compare")}>
-        Compare
-      </button>
-      <button type="button" role="tab" aria-selected={mode === "similar"} onClick={() => onMode("similar")}>
-        More like these
-      </button>
-    </div>
+    <ul className="quick-look">
+      {titles.map((title) => {
+        const plan = sessionPlan(title, filters.time);
+        const fit = fitOf.get(title.id) ?? 0;
+        const best = showBest && fit === top;
+        return (
+          <li key={title.id} className={best ? "is-best" : undefined}>
+            <Poster title={title} size="md" />
+            <div className="quick-card">
+              <h3>{title.name}</h3>
+              <p>{[title.year || "Undated", KIND_LABEL[title.kind], plan.primary].filter(Boolean).join(" · ")}</p>
+              <p>{title.audience ? `${title.audience} audience score` : "No audience score yet"}</p>
+              {titles.length > 1 ? (
+                <p className={best ? "best-flag" : undefined}>{best ? "Best match" : leaderCount === titles.length ? "Too close to call" : `${top - fit} points behind`}</p>
+              ) : (
+                <p>Add one more to compare</p>
+              )}
+            </div>
+            <button type="button" className="icon-btn" aria-label={`Remove ${title.name}`} onClick={() => onRemove(title.id)}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -118,51 +124,6 @@ function actingFilters(session: Session): Filters {
 function moodLabel(session: Session): string {
   const person = session.people.find((item) => item.id === session.activePersonId) ?? youPerson(session);
   return person.id === "you" ? "your mood" : `${person.name}'s mood`;
-}
-
-function Hero({
-  discover,
-  pickedIds,
-  onAdd,
-  onRemove,
-  onPreset,
-}: {
-  discover: Title[];
-  pickedIds: readonly string[];
-  onAdd: (title: Title) => void;
-  onRemove: (id: string) => void;
-  onPreset: (id: string) => void;
-}) {
-  return (
-    <div className="hero">
-      <p className="eyebrow">No account. No continue-watching pile.</p>
-      <h2>Put a few titles on the table.</h2>
-      <p className="lede">
-        Movies, series, anime, and animation, lined up on the only things that matter tonight: how long it takes, how it feels, and who is in the room.
-      </p>
-      <CatalogRail titles={discover} pickedIds={pickedIds} onAdd={onAdd} onRemove={onRemove} />
-      <div className="preset-grid">
-        {PRESETS.map((preset) => {
-          const titles = catalog.getMany(preset.titleIds);
-          return (
-            <button key={preset.id} type="button" className="preset" onClick={() => onPreset(preset.id)}>
-              <span className="fan" aria-hidden="true">
-                {titles.map((title) => (
-                  <Poster key={title.id} title={title} size="sm" />
-                ))}
-              </span>
-              <span className="eyebrow">{preset.eyebrow}</span>
-              <span className="preset-title">{preset.title}</span>
-              <span className="preset-blurb">{preset.blurb}</span>
-              <span className="preset-go">
-                Compare these <ArrowRight size={16} aria-hidden="true" />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 function Ticket({
@@ -182,7 +143,6 @@ function Ticket({
 }) {
   const ref = useRef<HTMLElement>(null);
   const leaders = ranked.filter((item) => item.weigh.total === ranked[0]?.weigh.total);
-  const parts = scoreTitle(verdict.title, filters);
   const tie = leaders.length > 1;
 
   useEffect(() => {
@@ -193,12 +153,8 @@ function Ticket({
 
   return (
     <article className="ticket" tabIndex={-1} ref={ref} key={focusToken}>
-      <p className="eyebrow">{tie ? "Too close to call" : "Tonight's pick"}</p>
+      <p className="eyebrow">{tie ? "Too close to call" : "Watch this"}</p>
       <h2>{tie ? leaders.map((item) => item.title.name).join(" · ") : verdict.title.name}</h2>
-      <p className="ticket-score">
-        <strong>{verdict.weigh.total}</strong>
-        <span>fit</span>
-      </p>
       <p className="ticket-copy">{narrateDecision(ranked, { groupMode, filters })}</p>
       {groupMode ? (
         <ul className="ticket-people">
@@ -217,25 +173,8 @@ function Ticket({
             );
           })}
         </ul>
-      ) : (
-        <ul className="ticket-factors">
-          <Factor label="Clock" value={parts.time} open={filters.time === "any"} />
-          <Factor label="Energy" value={parts.energy} open={filters.energy === "any"} />
-          <Factor label="Company" value={parts.company} open={filters.company === "any"} />
-          <Factor label="Scores" value={parts.sentiment} open={false} />
-        </ul>
-      )}
+      ) : null}
       {verdict.weigh.pickCount > 1 ? <p className="ticket-bonus">It got a lift because more than one person already picked it.</p> : null}
     </article>
-  );
-}
-
-function Factor({ label, value, open }: { label: string; value: number; open: boolean }) {
-  return (
-    <li>
-      <span>{label}</span>
-      {open ? <em>Any</em> : <Meter value={value * 100} />}
-      <strong>{open ? "Any" : Math.round(value * 100)}</strong>
-    </li>
   );
 }

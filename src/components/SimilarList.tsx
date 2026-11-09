@@ -25,9 +25,7 @@ export function SimilarList({
       <div className="hero">
         <p className="eyebrow">More like these</p>
         <h2>Name a few you already like.</h2>
-        <p className="lede">
-          Search two or three titles. The closest neighbors on this shelf show up here, matched on vibe, pace, and mood.
-        </p>
+        <p className="lede">Search a title you already like. Close matches show up here.</p>
       </div>
     );
   }
@@ -66,11 +64,7 @@ export function SimilarList({
           })}
         </ul>
       )}
-      <p className="shelf-note">
-        {live
-          ? "Matches for a catalog title come from TMDB recommendations, then scored on the same vibe and mood axes. Sample-shelf titles still match inside the shelf."
-          : "These matches use the sample shelf. A live catalog would score the same way."}
-      </p>
+      <p className="shelf-note">{live ? "These come from recommendations for the titles you named." : "These matches are from the sample shelf."}</p>
     </div>
   );
 }
