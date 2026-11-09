@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import handler from "../../api/catalog";
-import { allowedTmdbPath, GET, resetCatalogLimits } from "./catalogRoute";
+import { allowedTmdbPath, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
 
@@ -81,21 +81,45 @@ describe("TMDB catalog route", () => {
     expect(JSON.stringify(await response.json())).not.toContain("ey-test-token");
   });
 
-  it("stops calling TMDB after the per-minute cap", async () => {
+  it("stops calling TMDB after the shared per-minute cap", async () => {
     env().TMDB_API_KEY = "shelf-test-key";
     let calls = 0;
     globalThis.fetch = async () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    for (let i = 0; i < 40; i += 1) {
+    for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
       const ok = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
       expect(ok.status).toBe(200);
     }
     const blocked = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
     expect(blocked.status).toBe(429);
-    expect(calls).toBe(40);
+    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
+  });
+
+  it("does not open a new window when X-Forwarded-For changes", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
+      const ok = await GET(
+        new Request("https://app.example/api/catalog?op=search&q=spirited", {
+          headers: { "x-forwarded-for": `203.0.113.${i % 250}, 10.0.0.${i % 20}` },
+        }),
+      );
+      expect(ok.status).toBe(200);
+    }
+    const blocked = await GET(
+      new Request("https://app.example/api/catalog?op=search&q=spirited", {
+        headers: { "x-forwarded-for": "198.51.100.20" },
+      }),
+    );
+    expect(blocked.status).toBe(429);
+    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
   });
 
   it("merges the home lists, drops people, and keeps the key upstream", async () => {

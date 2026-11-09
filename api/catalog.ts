@@ -5,7 +5,8 @@
  */
 
 const TMDB_ORIGIN = "https://api.themoviedb.org";
-const LIMIT = 40;
+/** Shared by every caller. A client-supplied address must not open another window. */
+export const CATALOG_MINUTE_LIMIT = 120;
 const WINDOW_MS = 60_000;
 const buckets = new Map<string, { count: number; reset: number }>();
 
@@ -95,7 +96,7 @@ async function route(request: Request): Promise<Response> {
   const path = allowedTmdbPath(url.toString());
   if (path === null) return respond({ configured: true, error: "query" }, 400);
   if (op === "status") return respond({ configured: true }, 200);
-  if (tooMany(request, op === "browse" ? 3 : 1)) return respond({ configured: true, error: "rate" }, 429);
+  if (tooMany(op === "browse" ? 3 : 1)) return respond({ configured: true, error: "rate" }, 429);
 
   if (op === "browse") return browse(key);
 
@@ -268,18 +269,15 @@ function numberList(value: unknown): number[] {
   return value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
 }
 
-function tooMany(request: Request, weight: number): boolean {
-  const forwarded = request.headers.get("x-forwarded-for") ?? "local";
-  const ip = forwarded.split(",")[0]?.trim().slice(0, 80) || "local";
+function tooMany(weight: number): boolean {
   const now = Date.now();
-  if (buckets.size > 500) buckets.clear();
-  const slot = buckets.get(ip);
+  const slot = buckets.get("shared");
   if (!slot || now >= slot.reset) {
-    buckets.set(ip, { count: weight, reset: now + WINDOW_MS });
-    return weight > LIMIT;
+    buckets.set("shared", { count: weight, reset: now + WINDOW_MS });
+    return weight > CATALOG_MINUTE_LIMIT;
   }
   slot.count += weight;
-  return slot.count > LIMIT;
+  return slot.count > CATALOG_MINUTE_LIMIT;
 }
 
 function cleanQuery(value: string | null): string {
