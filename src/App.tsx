@@ -140,7 +140,6 @@ export function App() {
       </a>
       <Header saved={saved} canClear={titles.length > 0 || session.groupMode} onClear={() => dispatch({ type: "reset" })} />
       <main className="page">
-        {titles.length === 0 && mode === "compare" ? <p className="intro">Search a movie or series, or tap a poster. Add two and we will help you choose.</p> : null}
         <SearchBox
           session={session}
           catalogLive={catalogLive}
@@ -166,9 +165,11 @@ export function App() {
                     Help me pick
                   </button>
                 ) : null}
-                <button type="button" className="btn btn-ghost" onClick={() => setMode(mode === "similar" ? "compare" : "similar")}>
-                  {mode === "similar" ? "Back to your picks" : "More like these"}
-                </button>
+                {mode === "similar" || titles.length > 1 ? (
+                  <button type="button" className="text-link" onClick={() => setMode(mode === "similar" ? "compare" : "similar")}>
+                    {mode === "similar" ? "Back to your picks" : "More like these"}
+                  </button>
+                ) : null}
               </div>
             </div>
             {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more, then ask for a pick.</p> : null}
@@ -186,41 +187,53 @@ export function App() {
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
           discover={discover}
+          extras={
+            titles.length > 1 || session.groupMode || mood !== "No preferences" ? (
+              <details className="drawer">
+                <summary>{moodLabel}</summary>
+                <FilterBar
+                  filters={person.filters}
+                  legend={person.id === "you" ? "Tonight" : `${person.name} tonight`}
+                  onChange={(filters) => dispatch({ type: "set-filters", filters })}
+                />
+                <GroupPanel
+                  session={session}
+                  onEnable={() => {
+                    if (session.people.length < 2) dispatch({ type: "add-person" });
+                    else dispatch({ type: "toggle-group" });
+                  }}
+                  onDisable={() => dispatch({ type: "toggle-group" })}
+                  onAddPerson={() => dispatch({ type: "add-person" })}
+                  onRemovePerson={(personId) => dispatch({ type: "remove-person", personId })}
+                  onRename={(personId, name) => dispatch({ type: "rename-person", personId, name })}
+                  onActivate={(personId) => dispatch({ type: "set-active", personId })}
+                />
+              </details>
+            ) : null
+          }
           onRemove={(titleId) => dispatch({ type: "remove", titleId })}
           onAdd={acceptTitle}
         />
-        <details className="drawer">
-          <summary>{moodLabel}</summary>
-          <FilterBar filters={person.filters} legend={person.id === "you" ? "Tonight" : `${person.name} tonight`} onChange={(filters) => dispatch({ type: "set-filters", filters })} />
-          <GroupPanel
-            session={session}
-            onEnable={() => {
-              if (session.people.length < 2) dispatch({ type: "add-person" });
-              else dispatch({ type: "toggle-group" });
-            }}
-            onDisable={() => dispatch({ type: "toggle-group" })}
-            onAddPerson={() => dispatch({ type: "add-person" })}
-            onRemovePerson={(personId) => dispatch({ type: "remove-person", personId })}
-            onRename={(personId, name) => dispatch({ type: "rename-person", personId, name })}
-            onActivate={(personId) => dispatch({ type: "set-active", personId })}
-          />
-        </details>
-        <div className="preset-chips">
-          <p>Or start with a set</p>
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => {
-                revealOnMobile.current = true;
-                setMode("compare");
-                dispatch({ type: "load-preset", presetId: preset.id });
-              }}
-            >
-              {preset.title}
-            </button>
-          ))}
-        </div>
+        {titles.length === 0 && mode === "compare" ? (
+          <details className="drawer">
+            <summary>Start with a set</summary>
+            <div className="preset-chips">
+              {PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    revealOnMobile.current = true;
+                    setMode("compare");
+                    dispatch({ type: "load-preset", presetId: preset.id });
+                  }}
+                >
+                  {preset.title}
+                </button>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </main>
       <footer className="page-foot">
         <p>{catalogLive ? "Posters and scores come from TMDB. Your picks stay on this device." : "This shelf is a sample until a catalog key is added. Your picks stay on this device."}</p>

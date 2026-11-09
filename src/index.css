@@ -1551,6 +1551,18 @@ footer p + p {
   font-weight: 700;
 }
 
+.text-link {
+  min-height: 44px;
+  padding: 0 0.2rem;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
 .text-remove {
   margin-top: 0.45rem;
   padding: 0;
@@ -1582,6 +1594,10 @@ footer p + p {
   cursor: pointer;
   font-size: 1rem;
   font-weight: 700;
+}
+
+.drawer .preset-chips {
+  margin: 0.15rem 0 0.75rem;
 }
 
 .drawer .panel {

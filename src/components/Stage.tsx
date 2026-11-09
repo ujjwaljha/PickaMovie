@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { KIND_LABEL } from "../domain/copy";
@@ -21,6 +22,7 @@ export function Stage({
   suggestions,
   liveMatches,
   discover,
+  extras,
   onRemove,
   onAdd,
 }: {
@@ -32,6 +34,7 @@ export function Stage({
   suggestions: SimilarHit[];
   liveMatches: boolean;
   discover: Title[];
+  extras?: ReactNode;
   onRemove: (id: string) => void;
   onAdd: (title: Title) => void;
 }) {
@@ -48,8 +51,14 @@ export function Stage({
           {verdict ? (
             <Ticket focusToken={focusToken} ranked={ranked} verdict={verdict} filters={filters} people={session.people} groupMode={session.groupMode} />
           ) : null}
-          <QuickLook titles={titles} ranked={ranked} filters={session.groupMode ? actingFilters(session) : filters} onRemove={onRemove} />
-          {titles.length > 1 ? (
+          <QuickLook
+            titles={titles}
+            ranked={ranked}
+            filters={session.groupMode ? actingFilters(session) : filters}
+            showRank={verdict != null && titles.length > 1}
+            onRemove={onRemove}
+          />
+          {verdict && titles.length > 1 ? (
             <details className="drawer">
               <summary>See the full comparison</summary>
               <Comparison
@@ -65,8 +74,9 @@ export function Stage({
           ) : null}
         </>
       ) : null}
-      {mode === "compare" ? (
-        <CatalogRail titles={discover} pickedIds={pickedIds} heading={titles.length > 0 ? "Add another" : "Tap a poster to add it"} onAdd={onAdd} onRemove={onRemove} />
+      {extras}
+      {mode === "compare" && titles.length < 4 ? (
+        <CatalogRail titles={discover} pickedIds={pickedIds} heading={titles.length > 0 ? "Add another" : "Or tap a poster"} onAdd={onAdd} onRemove={onRemove} />
       ) : null}
     </section>
   );
@@ -76,11 +86,13 @@ function QuickLook({
   titles,
   ranked,
   filters,
+  showRank,
   onRemove,
 }: {
   titles: Title[];
   ranked: RankedTitle[];
   filters: Filters;
+  showRank: boolean;
   onRemove: (id: string) => void;
 }) {
   const top = ranked[0]?.weigh.total ?? 0;
@@ -101,11 +113,9 @@ function QuickLook({
               <h3>{title.name}</h3>
               <p>{[title.year || "Undated", KIND_LABEL[title.kind], plan.primary].filter(Boolean).join(" · ")}</p>
               <p>{title.audience ? `${title.audience} audience score` : "No audience score yet"}</p>
-              {titles.length > 1 ? (
+              {showRank ? (
                 <p className={best ? "best-flag" : undefined}>{best ? "Best match" : leaderCount === titles.length ? "Too close to call" : `${top - fit} points behind`}</p>
-              ) : (
-                <p>Add one more to compare</p>
-              )}
+              ) : null}
             </div>
             <button type="button" className="icon-btn" aria-label={`Remove ${title.name}`} onClick={() => onRemove(title.id)}>
               <X size={16} aria-hidden="true" />
