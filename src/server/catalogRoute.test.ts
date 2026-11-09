@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, it } from "vitest";
 import handler from "../../api/catalog";
-import { allowedTmdbPath, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
+import { allowedTmdbPath, CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
 
 function env(): Record<string, string | undefined> {
   return ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {});
+}
+
+function search(query: string, cookie: string): Request {
+  return new Request(`https://app.example/api/catalog?op=search&q=${query}`, { headers: { cookie } });
+}
+
+async function issuedCookie(): Promise<string> {
+  const response = await GET(new Request("https://app.example/api/catalog?op=status"));
+  const issued = response.headers.get("set-cookie") ?? "";
+  expect(issued).toContain("HttpOnly");
+  expect(issued).not.toContain("shelf-test-key");
+  return issued.split(";")[0] ?? "";
 }
 
 afterEach(() => {
@@ -92,17 +104,81 @@ describe("TMDB catalog route", () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(new Request(`https://app.example/api/catalog?op=search&q=cap${i}`));
+    const first = await issuedCookie();
+    const second = await issuedCookie();
+    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
+      const ok = await GET(search(`cap${i}`, first));
       expect(ok.status).toBe(200);
     }
-    const blocked = await GET(new Request("https://app.example/api/catalog?op=search&q=cap-over"));
+    for (let i = 0; i < CATALOG_MINUTE_LIMIT - CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
+      const ok = await GET(search(`cap-b${i}`, second));
+      expect(ok.status).toBe(200);
+    }
+    const blocked = await GET(search("cap-over", second));
     expect(blocked.status).toBe(429);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
-    const again = await GET(new Request("https://app.example/api/catalog?op=search&q=cap0"));
+    const again = await GET(search("cap0", first));
     expect(again.status).toBe(200);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
+  });
+
+  it("caps one visitor while another visitor can still search", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    const cookie = await issuedCookie();
+    expect(cookie).toContain("w2w=");
+    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
+      const ok = await GET(search(`own${i}`, cookie));
+      expect(ok.status).toBe(200);
+    }
+    const blocked = await GET(search("own-over", cookie));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("set-cookie")).toBeNull();
+    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
+
+    const other = await issuedCookie();
+    const allowed = await GET(search("other-ok", other));
+    expect(allowed.status).toBe(200);
+    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT + 1);
+  });
+
+  it("counts forged cookies as one anonymous visitor", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
+      const ok = await GET(
+        new Request(`https://app.example/api/catalog?op=search&q=anon${i}`, {
+          headers: {
+            cookie: `w2w=${i.toString(16).padStart(16, "0")}.${"ab".repeat(16)}`,
+            "x-forwarded-for": `198.51.100.${i}`,
+          },
+        }),
+      );
+      expect(ok.status).toBe(200);
+    }
+    const forged = await GET(
+      new Request("https://app.example/api/catalog?op=search&q=anon-over", {
+        headers: { cookie: "w2w=ffffffffffffffff.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "x-forwarded-for": "203.0.113.50" },
+      }),
+    );
+    expect(forged.status).toBe(429);
+    expect(forged.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(forged.headers.get("set-cookie")).not.toContain("shelf-test-key");
+    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
+
+    const real = await issuedCookie();
+    const allowed = await GET(search("after-anon", real));
+    expect(allowed.status).toBe(200);
+    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT + 1);
   });
 
   it("does not open a new window when X-Forwarded-For changes", async () => {
@@ -112,7 +188,7 @@ describe("TMDB catalog route", () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
+    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
       const ok = await GET(
         new Request(`https://app.example/api/catalog?op=search&q=xff${i}`, {
           headers: { "x-forwarded-for": `203.0.113.${i % 250}, 10.0.0.${i % 20}` },
@@ -126,7 +202,7 @@ describe("TMDB catalog route", () => {
       }),
     );
     expect(blocked.status).toBe(429);
-    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
+    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
   });
 
   it("merges the home lists, drops people, and keeps the key upstream", async () => {

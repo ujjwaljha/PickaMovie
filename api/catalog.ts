@@ -5,18 +5,26 @@
  */
 
 const TMDB_ORIGIN = "https://api.themoviedb.org";
-/** Fresh upstream calls per minute. A repeated query is served from cache and does not count. */
+/** Fresh upstream calls per minute for the whole app. A repeated query is served from cache and does not count. */
 export const CATALOG_MINUTE_LIMIT = 20;
+/** Fresh upstream calls per minute for one browser. Forged cookies share the anonymous bucket. */
+export const CATALOG_CLIENT_MINUTE_LIMIT = 12;
 const HOUR_LIMIT = 200;
+const CLIENT_HOUR_LIMIT = 60;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
+const MAX_CLIENTS = 200;
 
 type Saved = { body: { configured: true; payload: unknown }; cacheSeconds: number; expires: number };
+type Window = { count: number; reset: number };
+type ClientBucket = { minute: Window; hour: Window; seen: number };
 
 const cache = new Map<string, Saved>();
 const inflight = new Map<string, Promise<Saved | null>>();
-const minute = { count: 0, reset: 0 };
-const hour = { count: 0, reset: 0 };
+const clients = new Map<string, ClientBucket>();
+const minute: Window = { count: 0, reset: 0 };
+const hour: Window = { count: 0, reset: 0 };
+let signingKey: CryptoKey | null = null;
 
 const BROWSE_PATHS = [
   "/3/trending/all/week?language=en-US",
@@ -29,7 +37,7 @@ type Env = { TMDB_API_KEY?: string };
 type NodeRequest = {
   url?: string;
   method?: string;
-  headers?: { host?: string | string[] };
+  headers?: { host?: string | string[]; cookie?: string | string[] };
 };
 
 type NodeResponse = {
@@ -47,6 +55,7 @@ export function resetCatalogLimits(): void {
   minute.reset = 0;
   hour.count = 0;
   hour.reset = 0;
+  clients.clear();
 }
 
 function readKey(): string {
@@ -104,25 +113,29 @@ async function route(request: Request): Promise<Response> {
   const key = readKey();
   if (!key) return respond({ configured: false }, 200);
 
+  const visitor = await identify(request);
+  const stamp = visitor.fresh ? cookieHeader(visitor.token, request.url.startsWith("https:")) : undefined;
+  const send = (body: unknown, status: number, cacheSeconds = 0) => respond(body, status, cacheSeconds, stamp);
+
   const url = requestUrl(request);
   const op = url.searchParams.get("op");
   const path = allowedTmdbPath(url.toString());
-  if (path === null) return respond({ configured: true, error: "query" }, 400);
-  if (op === "status") return respond({ configured: true }, 200);
+  if (path === null) return send({ configured: true, error: "query" }, 400);
+  if (op === "status") return send({ configured: true }, 200);
 
   const id = op === "browse" ? "browse" : path;
   const weight = op === "browse" ? 3 : 1;
   const ready = recall(id);
-  if (ready) return respond(ready.body, 200, ready.cacheSeconds);
+  if (ready) return send(ready.body, 200, ready.cacheSeconds);
 
   const pending = inflight.get(id);
   if (pending) {
     const shared = await pending;
-    if (!shared) return respond({ configured: true, error: "upstream" }, 502);
-    return respond(shared.body, 200, shared.cacheSeconds);
+    if (!shared) return send({ configured: true, error: "upstream" }, 502);
+    return send(shared.body, 200, shared.cacheSeconds);
   }
 
-  if (tooMany(weight)) return respond({ configured: true, error: "rate" }, 429);
+  if (tooMany(visitor.id, weight)) return send({ configured: true, error: "rate" }, 429);
 
   const job = loadCatalog(op ?? "", key, path).then((saved) => {
     if (saved) remember(id, saved);
@@ -131,8 +144,8 @@ async function route(request: Request): Promise<Response> {
   inflight.set(id, job);
   try {
     const saved = await job;
-    if (!saved) return respond({ configured: true, error: "upstream" }, 502);
-    return respond(saved.body, 200, saved.cacheSeconds);
+    if (!saved) return send({ configured: true, error: "upstream" }, 502);
+    return send(saved.body, 200, saved.cacheSeconds);
   } finally {
     inflight.delete(id);
   }
@@ -332,20 +345,115 @@ function remember(id: string, saved: Saved): void {
   cache.set(id, { ...saved, expires: Date.now() + saved.cacheSeconds * 1000 });
 }
 
-function tooMany(weight: number): boolean {
+function tooMany(client: string, weight: number): boolean {
   const now = Date.now();
-  if (now >= minute.reset) {
-    minute.count = 0;
-    minute.reset = now + MINUTE_MS;
-  }
-  if (now >= hour.reset) {
-    hour.count = 0;
-    hour.reset = now + HOUR_MS;
-  }
+  roll(minute, now, MINUTE_MS);
+  roll(hour, now, HOUR_MS);
   if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > HOUR_LIMIT) return true;
+  const bucket = takeClient(client, now);
+  roll(bucket.minute, now, MINUTE_MS);
+  roll(bucket.hour, now, HOUR_MS);
+  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CLIENT_HOUR_LIMIT) return true;
   minute.count += weight;
   hour.count += weight;
+  bucket.minute.count += weight;
+  bucket.hour.count += weight;
   return false;
+}
+
+function roll(window: Window, now: number, span: number): void {
+  if (now < window.reset) return;
+  window.count = 0;
+  window.reset = now + span;
+}
+
+function takeClient(id: string, now: number): ClientBucket {
+  const found = clients.get(id);
+  if (found) {
+    found.seen = now;
+    return found;
+  }
+  if (id !== "anon" && clients.size >= MAX_CLIENTS && !dropIdleClient(now)) return takeClient("anon", now);
+  const created: ClientBucket = { minute: { count: 0, reset: 0 }, hour: { count: 0, reset: 0 }, seen: now };
+  clients.set(id, created);
+  return created;
+}
+
+function dropIdleClient(now: number): boolean {
+  let drop: string | null = null;
+  let seen = Infinity;
+  for (const [key, bucket] of clients) {
+    if (key === "anon" || bucket.seen >= seen) continue;
+    if (bucket.minute.count > 0 && now < bucket.minute.reset) continue;
+    drop = key;
+    seen = bucket.seen;
+  }
+  if (!drop) return false;
+  clients.delete(drop);
+  return true;
+}
+
+async function identify(request: Request): Promise<{ id: string; token: string; fresh: boolean }> {
+  const presented = readCookie(request.headers.get("cookie"), "w2w");
+  const id = await verifiedId(presented);
+  if (id && presented) return { id, token: presented, fresh: false };
+  return { id: "anon", token: await issueToken(), fresh: true };
+}
+
+async function verifiedId(token: string | null): Promise<string | null> {
+  if (!token) return null;
+  const match = /^([0-9a-f]{16})\.([0-9a-f]{32})$/.exec(token);
+  if (!match) return null;
+  const expected = await sign(match[1]);
+  return sameText(expected, match[2]) ? match[1] : null;
+}
+
+async function issueToken(): Promise<string> {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const id = hex(bytes);
+  return `${id}.${await sign(id)}`;
+}
+
+async function sign(id: string): Promise<string> {
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(), new TextEncoder().encode(id)));
+  return hex(mac).slice(0, 32);
+}
+
+async function hmacKey(): Promise<CryptoKey> {
+  if (signingKey) return signingKey;
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  signingKey = await crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return signingKey;
+}
+
+function cookieHeader(token: string, secure: boolean): string {
+  const parts = ["w2w=" + token, "HttpOnly", "SameSite=Lax", "Path=/api/catalog", "Max-Age=86400"];
+  if (secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function readCookie(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq === -1 || trimmed.slice(0, eq) !== name) continue;
+    return trimmed.slice(eq + 1);
+  }
+  return null;
+}
+
+function sameText(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i += 1) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function cleanQuery(value: string | null): string {
@@ -368,7 +476,11 @@ function asRequest(req: Request | NodeRequest): Request {
       new URL(candidate.url);
       return candidate;
     } catch {
-      return new Request(new URL(candidate.url || "/", "https://localhost"), { method: candidate.method || "GET" });
+      const cookie = candidate.headers.get("cookie");
+      return new Request(new URL(candidate.url || "/", "https://localhost"), {
+        method: candidate.method || "GET",
+        headers: cookie ? { cookie } : undefined,
+      });
     }
   }
   const node = req as NodeRequest;
@@ -376,12 +488,14 @@ function asRequest(req: Request | NodeRequest): Request {
   const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) || "localhost";
   const raw = node.url || "/api/catalog";
   const absolute = raw.startsWith("http") ? raw : `https://${host}${raw.startsWith("/") ? "" : "/"}${raw}`;
-  return new Request(absolute, { method: node.method || "GET" });
+  const cookieHeaderValue = node.headers?.cookie;
+  const cookie = Array.isArray(cookieHeaderValue) ? cookieHeaderValue[0] : cookieHeaderValue;
+  return new Request(absolute, { method: node.method || "GET", headers: cookie ? { cookie } : undefined });
 }
 
-function respond(body: unknown, status: number, cacheSeconds = 0): Response {
-  return Response.json(body, {
-    status,
-    headers: { "cache-control": cacheSeconds > 0 ? `public, max-age=${cacheSeconds}` : "no-store" },
-  });
+function respond(body: unknown, status: number, cacheSeconds = 0, cookie?: string): Response {
+  const cacheControl = cookie && cacheSeconds > 0 ? `private, max-age=${cacheSeconds}` : cacheSeconds > 0 ? `public, max-age=${cacheSeconds}` : "no-store";
+  const headers: Record<string, string> = { "cache-control": cacheControl };
+  if (cookie) headers["set-cookie"] = cookie;
+  return Response.json(body, { status, headers });
 }
