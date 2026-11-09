@@ -9,6 +9,10 @@ const TMDB_ORIGIN = "https://api.themoviedb.org";
 export const CATALOG_MINUTE_LIMIT = 20;
 /** Fresh upstream calls per minute for one browser. Forged cookies share the anonymous bucket. */
 export const CATALOG_CLIENT_MINUTE_LIMIT = 12;
+/** Languages a visitor can ask for. The same codes live in the app's language list. */
+export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
+const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
+const LISTED_LOOKUPS = 4;
 const HOUR_LIMIT = 200;
 const CLIENT_HOUR_LIMIT = 60;
 const MINUTE_MS = 60_000;
@@ -67,9 +71,16 @@ export function allowedTmdbPath(requestUrl: string): string | null {
   const url = new URL(requestUrl);
   const op = url.searchParams.get("op");
   if (op === "status" || op === "browse") return "";
+  if (op === "language") {
+    const lang = languageCode(url.searchParams.get("lang"));
+    const audio = audioMode(url.searchParams.get("audio"));
+    if (!lang || audio !== "original") return null;
+    return "";
+  }
   if (op === "search") {
     const query = cleanQuery(url.searchParams.get("q")).toLowerCase();
     if (query.length < 2) return null;
+    if (languageCode(url.searchParams.get("lang")) === null || audioMode(url.searchParams.get("audio")) === null) return null;
     return `/3/search/multi?query=${encodeURIComponent(query)}&include_adult=false&language=en-US`;
   }
   if (op !== "title" && op !== "similar") return null;
@@ -123,8 +134,10 @@ async function route(request: Request): Promise<Response> {
   if (path === null) return send({ configured: true, error: "query" }, 400);
   if (op === "status") return send({ configured: true }, 200);
 
-  const id = op === "browse" ? "browse" : path;
-  const weight = op === "browse" ? 3 : 1;
+  const lang = languageCode(url.searchParams.get("lang")) ?? "";
+  const audio = audioMode(url.searchParams.get("audio")) ?? "original";
+  const id = op === "browse" ? "browse" : op === "language" ? `language:${lang}` : op === "search" ? searchCacheId(path, lang, audio) : path;
+  const weight = op === "browse" ? 3 : op === "language" ? 2 : op === "search" && lang && audio === "listed" ? 1 + LISTED_LOOKUPS : 1;
   const ready = recall(id);
   if (ready) return send(ready.body, 200, ready.cacheSeconds);
 
@@ -137,7 +150,7 @@ async function route(request: Request): Promise<Response> {
 
   if (tooMany(visitor.id, weight)) return send({ configured: true, error: "rate" }, 429);
 
-  const job = loadCatalog(op ?? "", key, path).then((saved) => {
+  const job = loadCatalog(op ?? "", key, path, lang, audio).then((saved) => {
     if (saved) remember(id, saved);
     return saved;
   });
@@ -151,9 +164,14 @@ async function route(request: Request): Promise<Response> {
   }
 }
 
-async function loadCatalog(op: string, key: string, path: string): Promise<Saved | null> {
+async function loadCatalog(op: string, key: string, path: string, lang: string, audio: "original" | "listed"): Promise<Saved | null> {
   if (op === "browse") {
-    const results = await browseResults(key);
+    const results = await browseResults(key, BROWSE_PATHS);
+    if (!results) return null;
+    return { body: { configured: true, payload: { results } }, cacheSeconds: 3600, expires: 0 };
+  }
+  if (op === "language") {
+    const results = await browseResults(key, languagePaths(lang));
     if (!results) return null;
     return { body: { configured: true, payload: { results } }, cacheSeconds: 3600, expires: 0 };
   }
@@ -164,14 +182,77 @@ async function loadCatalog(op: string, key: string, path: string): Promise<Saved
     if (!slim) return null;
     return { body: { configured: true, payload: slim }, cacheSeconds: 3600, expires: 0 };
   }
+  if (op === "search") {
+    const results = await searchResults(key, payload, lang, audio);
+    if (!results) return null;
+    return { body: { configured: true, payload: { results } }, cacheSeconds: 300, expires: 0 };
+  }
   const rows = Array.isArray(payload.results) ? payload.results : [];
-  const results = rows.map(slimResult).filter((item): item is Raw => item !== null).slice(0, op === "search" ? 16 : 12);
-  const cacheSeconds = op === "search" ? 300 : 1800;
-  return { body: { configured: true, payload: { results } }, cacheSeconds, expires: 0 };
+  const results = rows.map(slimResult).filter((item): item is Raw => item !== null).slice(0, 12);
+  return { body: { configured: true, payload: { results } }, cacheSeconds: 1800, expires: 0 };
 }
 
-async function browseResults(key: string): Promise<Raw[] | null> {
-  const batches = await Promise.all(BROWSE_PATHS.map((path) => tmdb(key, path)));
+async function searchResults(key: string, payload: Raw, lang: string, audio: "original" | "listed"): Promise<Raw[] | null> {
+  const rows = Array.isArray(payload.results) ? payload.results : [];
+  const slimmed = rows.map(slimResult).filter((item): item is Raw => item !== null);
+  if (!lang) return slimmed.slice(0, 16);
+  if (audio === "original") return slimmed.filter((item) => item.original_language === lang).slice(0, 16);
+  const listed: Raw[] = [];
+  let lookups = 0;
+  for (const item of slimmed) {
+    if (listed.length === 8) break;
+    if (item.original_language === lang) continue;
+    if (lookups >= LISTED_LOOKUPS) break;
+    if (typeof item.id !== "number" || (item.media_type !== "movie" && item.media_type !== "tv")) continue;
+    lookups += 1;
+    const translations = await tmdb(key, `/3/${item.media_type}/${item.id}/translations`);
+    const codes = translationCodes(translations).filter((code) => code !== item.original_language);
+    if (!codes.includes(lang)) continue;
+    item.listed_in = codes.slice(0, 6);
+    listed.push(item);
+  }
+  return listed;
+}
+
+function languagePaths(lang: string): readonly string[] {
+  return [
+    `/3/discover/movie?with_original_language=${lang}&sort_by=popularity.desc&include_adult=false&language=en-US`,
+    `/3/discover/tv?with_original_language=${lang}&sort_by=popularity.desc&include_adult=false&language=en-US`,
+  ];
+}
+
+function searchCacheId(path: string, lang: string, audio: "original" | "listed"): string {
+  if (!lang) return path;
+  return `${path}|${audio}|${lang}`;
+}
+
+function languageCode(value: string | null): string | null {
+  if (!value) return "";
+  const code = value.trim().toLowerCase();
+  if (!LANGUAGE_CODES.has(code)) return null;
+  return code;
+}
+
+function audioMode(value: string | null): "original" | "listed" | null {
+  if (!value || value === "original") return "original";
+  if (value === "listed") return "listed";
+  return null;
+}
+
+function translationCodes(payload: Raw | null): string[] {
+  const rows = payload && Array.isArray(payload.translations) ? payload.translations : [];
+  const codes: string[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const code = text((row as Raw).iso_639_1, 8)?.toLowerCase();
+    if (!code || code.length !== 2 || !LANGUAGE_CODES.has(code) || codes.includes(code)) continue;
+    codes.push(code);
+  }
+  return codes;
+}
+
+async function browseResults(key: string, paths: readonly string[]): Promise<Raw[] | null> {
+  const batches = await Promise.all(paths.map((path) => tmdb(key, path)));
   const results: Raw[] = [];
   const seen = new Set<string>();
   for (const payload of batches) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TITLES } from "../data/titles";
-import { normalize, rankTitles } from "./search";
+import { matchesLanguage, normalize, rankTitles } from "./search";
 
 describe("shelf search", () => {
   it("suggests a featured mix before anyone types", () => {
@@ -23,6 +23,17 @@ describe("shelf search", () => {
     );
     expect(rankTitles("1997", TITLES).map((title) => title.id)).toContain("perfect-blue");
     expect(normalize("Amélie")).toBe("amelie");
+  });
+
+  it("matches an original language and a listed dub or subtitle language", () => {
+    const parasite = TITLES.find((title) => title.id === "parasite");
+    expect(parasite).toBeTruthy();
+    if (!parasite) return;
+    expect(matchesLanguage(parasite, "", "original")).toBe(true);
+    expect(matchesLanguage(parasite, "ko", "original")).toBe(true);
+    expect(matchesLanguage(parasite, "hi", "original")).toBe(false);
+    expect(matchesLanguage({ ...parasite, listedIn: "Hindi" }, "hi", "listed")).toBe(true);
+    expect(matchesLanguage(parasite, "hi", "listed")).toBe(false);
   });
 
   it("returns nothing for a title that is not on the shelf", () => {

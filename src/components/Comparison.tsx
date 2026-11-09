@@ -244,7 +244,7 @@ function TitleHead({
         </p>
         <h3>{title.name}</h3>
         <p>{title.creator.replaceAll("-", "\u2011")}</p>
-        <p>{title.language}</p>
+        <p>{title.listedIn ? `${title.language} · Dub or subtitles listed in ${title.listedIn}` : title.language}</p>
         {groupMode && pickers.length > 0 ? <p className="picked-by">Picked by {joinNames(pickers.map((person) => person.name))}</p> : null}
         <p className="fit-num">
           <strong>{fit}</strong>

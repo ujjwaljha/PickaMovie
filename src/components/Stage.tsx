@@ -24,6 +24,7 @@ export function Stage({
   suggestions,
   liveMatches,
   discover,
+  railHeading,
   extras,
   onRemove,
   onAdd,
@@ -38,6 +39,7 @@ export function Stage({
   suggestions: SimilarHit[];
   liveMatches: boolean;
   discover: Title[];
+  railHeading?: string;
   extras?: ReactNode;
   onRemove: (id: string) => void;
   onAdd: (title: Title) => void;
@@ -86,7 +88,7 @@ export function Stage({
       ) : null}
       {extras}
       {mode === "compare" && titles.length < 4 ? (
-        <CatalogRail titles={discover} pickedIds={pickedIds} heading={titles.length > 0 ? "Add another" : "Or tap a poster"} onAdd={onAdd} onRemove={onRemove} />
+        <CatalogRail titles={discover} pickedIds={pickedIds} heading={railHeading ?? (titles.length > 0 ? "Add another" : "Or tap a poster")} onAdd={onAdd} onRemove={onRemove} />
       ) : null}
     </section>
   );
@@ -123,6 +125,7 @@ function QuickLook({
               <h3>{title.name}</h3>
               <p>{[title.year || "Undated", KIND_LABEL[title.kind], plan.primary].filter(Boolean).join(" · ")}</p>
               <p>{title.audience ? `${title.audience} audience score` : "No audience score yet"}</p>
+              {title.listedIn ? <p>Dub or subtitles listed in {title.listedIn}</p> : null}
               {showRank ? (
                 <p className={best ? "best-flag" : undefined}>{best ? "Best match" : leaderCount === titles.length ? "Too close to call" : `${top - fit} points behind`}</p>
               ) : null}

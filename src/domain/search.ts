@@ -1,3 +1,5 @@
+import type { AudioMatch } from "./languages";
+import { languageName } from "./languages";
 import type { Title } from "./types";
 
 const FEATURED_IDS = ["parasite", "past-lives", "spider-verse", "fleabag", "frieren", "knives-out"];
@@ -48,6 +50,13 @@ function scoreMatch(title: Title, query: string): number {
 
   if (query.length === 1 && score < 74) return 0;
   return score;
+}
+
+export function matchesLanguage(title: Title, code: string, audio: AudioMatch): boolean {
+  if (!code) return true;
+  const name = languageName(code).toLowerCase();
+  if (audio === "original") return title.language.toLowerCase().includes(name);
+  return (title.listedIn ?? "").toLowerCase().includes(name);
 }
 
 export function splitMatch(text: string, query: string): { text: string; match: boolean }[] {

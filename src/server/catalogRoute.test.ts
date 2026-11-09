@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import handler from "../../api/catalog";
-import { allowedTmdbPath, CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
+import { CATALOG_LANGUAGES } from "../domain/languages";
+import { allowedTmdbPath, CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_LANGUAGE_CODES, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
 
@@ -47,6 +48,10 @@ describe("TMDB catalog route", () => {
       "/3/search/multi?query=spirited%20away&include_adult=false&language=en-US",
     );
     expect(allowedTmdbPath("https://evil.example/?op=search&q=xy")).toContain("/3/search/multi?query=xy");
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=search&q=spirited&lang=nope")).toBeNull();
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=language&lang=hi")).toBe("");
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=language&lang=hi&audio=listed")).toBeNull();
+    expect([...CATALOG_LANGUAGE_CODES]).toEqual(CATALOG_LANGUAGES.map((language) => language.code));
   });
 
   it("says the catalog is not configured when the key is absent and does not call out", async () => {
@@ -203,6 +208,75 @@ describe("TMDB catalog route", () => {
     );
     expect(blocked.status).toBe(429);
     expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
+  });
+
+  it("filters a search to one original language", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return Response.json({
+        results: [
+          { id: 1, media_type: "movie", title: "English Film", original_language: "en", poster_path: "/en.jpg" },
+          { id: 2, media_type: "movie", title: "Hindi Film", original_language: "hi", poster_path: "/hi.jpg" },
+        ],
+      });
+    };
+    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=film&lang=hi"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(body.payload.results.map((item: { title?: string }) => item.title)).toEqual(["Hindi Film"]);
+    expect(JSON.stringify(body)).not.toContain("shelf-test-key");
+  });
+
+  it("keeps titles TMDB lists in the chosen language and skips the original", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      const url = String(input);
+      if (url.includes("/movie/7/translations")) {
+        return Response.json({ translations: [{ iso_639_1: "hi", english_name: "Hindi" }, { iso_639_1: "fr" }] });
+      }
+      if (url.includes("/translations")) return Response.json({ translations: [{ iso_639_1: "de" }] });
+      return Response.json({
+        results: [
+          { id: 2, media_type: "movie", title: "Hindi Film", original_language: "hi", poster_path: "/hi.jpg" },
+          { id: 7, media_type: "movie", title: "Dubbed Film", original_language: "en", poster_path: "/en.jpg" },
+          { id: 8, media_type: "movie", title: "French Only", original_language: "fr", poster_path: "/fr.jpg" },
+        ],
+      });
+    };
+    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=film&lang=hi&audio=listed"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.payload.results.map((item: { title?: string; listed_in?: string[] }) => [item.title, item.listed_in])).toEqual([["Dubbed Film", ["hi", "fr"]]]);
+    expect(calls.some((call) => call.includes("/movie/7/translations"))).toBe(true);
+    expect(calls.some((call) => call.includes("/movie/2/translations"))).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("shelf-test-key");
+  });
+
+  it("loads popular titles in one original language", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    const calls: string[] = [];
+    globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      const url = String(input);
+      if (url.includes("/discover/movie")) {
+        return Response.json({ results: [{ id: 2, title: "Hindi Film", original_language: "hi", poster_path: "/hi.jpg" }] });
+      }
+      return Response.json({ results: [{ id: 9, name: "Hindi Series", original_language: "hi", poster_path: "/series.jpg" }] });
+    };
+    const response = await GET(new Request("https://app.example/api/catalog?op=language&lang=hi"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.includes("with_original_language=hi") && call.includes("api_key=shelf-test-key"))).toBe(true);
+    expect(body.payload.results.map((item: { id: number }) => item.id)).toEqual([2, 9]);
+    const again = await GET(new Request("https://app.example/api/catalog?op=language&lang=hi"));
+    expect(again.status).toBe(200);
+    expect(calls).toHaveLength(2);
   });
 
   it("merges the home lists, drops people, and keeps the key upstream", async () => {

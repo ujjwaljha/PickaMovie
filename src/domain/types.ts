@@ -31,6 +31,8 @@ export type Title = {
   kind: Kind;
   creator: string;
   language: string;
+  /** Other languages TMDB lists for this title. A listing can be a dub or subtitles. */
+  listedIn?: string;
   synopsis: string;
   /** Original editorial lines for this shelf. Not quotations. */
   highlights: [string, string];

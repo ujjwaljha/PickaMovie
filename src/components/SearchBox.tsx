@@ -2,7 +2,8 @@ import { Minus, Plus, Search } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { KIND_LABEL } from "../domain/copy";
 import { formatDuration } from "../domain/format";
-import { splitMatch } from "../domain/search";
+import { CATALOG_LANGUAGES, languageName, type AudioMatch } from "../domain/languages";
+import { matchesLanguage, splitMatch } from "../domain/search";
 import { actingPerson, addBlockReason, type Session } from "../domain/session";
 import type { Title } from "../domain/types";
 import { catalog } from "../services/catalog";
@@ -16,6 +17,10 @@ export function SearchBox({
   label,
   catalogLive,
   discover,
+  language,
+  audio,
+  onLanguage,
+  onAudio,
 }: {
   session: Session;
   onAdd: (title: Title) => void;
@@ -23,6 +28,10 @@ export function SearchBox({
   label?: string;
   catalogLive: boolean;
   discover: Title[];
+  language: string;
+  audio: AudioMatch;
+  onLanguage: (language: string) => void;
+  onAudio: (audio: AudioMatch) => void;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -31,9 +40,12 @@ export function SearchBox({
   const [remote, setRemote] = useState<Title[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
-  const shelf = useMemo(() => catalog.search(query), [query]);
+  const shelf = useMemo(() => {
+    if (language && query.trim().length < 2) return catalog.all().filter((title) => matchesLanguage(title, language, audio)).slice(0, 12);
+    return catalog.search(query).filter((title) => matchesLanguage(title, language, audio));
+  }, [audio, language, query]);
   const usingRemote = catalogLive && query.trim().length >= 2 && remote !== null;
-  const browsing = catalogLive && query.trim().length < 2 && discover.length > 0;
+  const browsing = catalogLive && query.trim().length < 2 && audio !== "listed" && discover.length > 0;
   const results = usingRemote ? remote : browsing ? discover.slice(0, 12) : shelf;
   const person = actingPerson(session);
   const safeActive = results.length === 0 ? 0 : Math.min(active, results.length - 1);
@@ -54,7 +66,7 @@ export function SearchBox({
     setSearching(true);
     setRemote(null);
     const timer = window.setTimeout(() => {
-      void searchLive(q, controller.signal).then((found) => {
+      void searchLive(q, { language, audio }, controller.signal).then((found) => {
         if (controller.signal.aborted) return;
         setSearching(false);
         setRemote(found);
@@ -64,7 +76,7 @@ export function SearchBox({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [catalogLive, query]);
+  }, [audio, catalogLive, language, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -133,16 +145,59 @@ export function SearchBox({
         />
         <kbd className="slash">/</kbd>
       </div>
+      <div className="search-filters">
+        <label className="search-filter">
+          Language
+          <select
+            value={language}
+            onChange={(event) => {
+              onLanguage(event.target.value);
+              setActive(0);
+              setOpen(true);
+            }}
+          >
+            <option value="">Any language</option>
+            {CATALOG_LANGUAGES.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {language ? (
+          <label className="search-filter">
+            Available as
+            <select
+              value={audio}
+              onChange={(event) => {
+                onAudio(event.target.value === "listed" ? "listed" : "original");
+                setActive(0);
+                setOpen(true);
+              }}
+            >
+              <option value="original">Original language</option>
+              <option value="listed">Dub or subtitles listed</option>
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {language && audio === "listed" ? (
+        <p className="hint">TMDB lists a language version. It does not say whether that version is a dub or subtitles.</p>
+      ) : null}
       {open ? (
         <div className="results">
           <p className="results-label">
-            {searching ? "Searching the catalog…" : usingRemote || browsing ? "From the catalog" : query.trim() ? "Matches" : "From the shelf"}
+            {searching ? "Searching the catalog…" : usingRemote || browsing ? "From the catalog" : query.trim() || language ? "Matches" : "From the shelf"}
           </p>
           {results.length === 0 ? (
             <p className="results-empty">
-              {usingRemote
-                ? "Nothing in the catalog matches that."
-                : "Nothing on the shelf matches that. Try a director, a year, or a mood."}
+              {language && audio === "listed" && !catalogLive
+                ? "Dub listings need the live catalog. This shelf can match an original language."
+                : usingRemote
+                  ? language
+                    ? `Nothing matches that in ${languageName(language)}.`
+                    : "Nothing in the catalog matches that."
+                  : "Nothing on the shelf matches that. Try a director, a year, or a mood."}
             </p>
           ) : (
             <ul id={listId} role="listbox">
@@ -173,7 +228,8 @@ export function SearchBox({
                         )}
                       </span>
                       <span className="result-meta">
-                        {KIND_LABEL[title.kind]} · {title.year || "Undated"} ·{" "}
+                        {KIND_LABEL[title.kind]} · {title.year || "Undated"} · {title.language}
+                        {title.listedIn ? ` · Dub or subtitles listed in ${title.listedIn}` : ""} ·{" "}
                         {title.episodeMinutes
                           ? `${title.episodeMinutes} min episodes`
                           : formatDuration(title.runtimeMinutes, title.approximate)}

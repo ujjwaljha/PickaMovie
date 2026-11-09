@@ -1,3 +1,4 @@
+import type { AudioMatch } from "../domain/languages";
 import type { Title } from "../domain/types";
 import { mapTmdbTitle, type TmdbResult } from "./tmdb";
 
@@ -13,11 +14,20 @@ export async function probeCatalog(signal?: AbortSignal): Promise<CatalogMode> {
   return body?.configured === true ? "live" : "shelf";
 }
 
-export async function searchLive(query: string, signal?: AbortSignal): Promise<Title[] | null> {
-  const body = await read(`/api/catalog?op=search&q=${encodeURIComponent(query)}`, signal);
+export async function searchLive(query: string, options?: { language?: string; audio?: AudioMatch }, signal?: AbortSignal): Promise<Title[] | null> {
+  const params = new URLSearchParams({ op: "search", q: query });
+  if (options?.language) params.set("lang", options.language);
+  if (options?.language && options.audio === "listed") params.set("audio", "listed");
+  const body = await read(`/api/catalog?${params.toString()}`, signal);
   if (!body) return null;
   if (body.configured !== true) return null;
   return titlesFromPayload(body.payload).slice(0, 16);
+}
+
+export async function loadLanguage(language: string, signal?: AbortSignal): Promise<Title[] | null> {
+  const body = await read(`/api/catalog?op=language&lang=${encodeURIComponent(language)}`, signal);
+  if (!body || body.configured !== true) return null;
+  return titlesFromPayload(body.payload);
 }
 
 export async function loadBrowse(signal?: AbortSignal): Promise<Title[] | null> {

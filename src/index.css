@@ -259,7 +259,7 @@ footer p,
   width: 100%;
 }
 
-.search label,
+.search > label,
 .name-field,
 .filters legend,
 .section-row h2 {
@@ -272,6 +272,36 @@ footer p,
 
 .search-field {
   position: relative;
+}
+
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.search-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: min(100%, 14rem);
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.search-filter select {
+  min-height: 44px;
+  padding: 0 0.7rem;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
 }
 
 .search-field svg {

@@ -1,3 +1,4 @@
+import { languageName } from "../domain/languages";
 import type { Fits, Kind, Pacing, Title } from "../domain/types";
 
 /**
@@ -17,6 +18,7 @@ export type TmdbResult = {
   release_date?: string;
   first_air_date?: string;
   original_language?: string;
+  listed_in?: string[];
   runtime?: number;
   episode_run_time?: number[];
   number_of_episodes?: number;
@@ -53,19 +55,6 @@ const GENRE_VIBES: Record<number, string> = {
   10762: "Feel-good",
 };
 
-const LANG: Record<string, string> = {
-  en: "English",
-  ja: "Japanese",
-  ko: "Korean",
-  fr: "French",
-  es: "Spanish",
-  zh: "Chinese",
-  de: "German",
-  it: "Italian",
-  hi: "Hindi",
-  pt: "Portuguese",
-};
-
 const PALETTES: readonly [string, string][] = [
   ["#1c1c1c", "#3f6b52"],
   ["#6d1b4a", "#0e0e14"],
@@ -83,6 +72,7 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
 
   const genreIds = raw.genre_ids ?? raw.genres?.map((genre) => genre.id) ?? [];
   const languageCode = raw.original_language ?? "en";
+  const listedIn = listedNames(raw.listed_in);
   const kind = inferKind(media, genreIds, languageCode);
   const pacing = inferPacing(genreIds, sittingMinutes(raw, media));
   const score = scaleVote(raw.vote_average);
@@ -98,7 +88,8 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
     year,
     kind,
     creator,
-    language: LANG[languageCode] ?? languageCode.toUpperCase(),
+    language: languageName(languageCode),
+    ...(listedIn ? { listedIn } : {}),
     synopsis: overview ? clip(overview, 320) : "No synopsis was included for this title.",
     highlights: detailLines(raw, creator),
     vibeTags: genreNames(raw) ?? inferVibes(genreIds),
@@ -140,6 +131,11 @@ export function createTmdbSource(request: TmdbRequester) {
       return titles;
     },
   };
+}
+
+function listedNames(codes: readonly string[] | undefined): string {
+  if (!codes || codes.length === 0) return "";
+  return codes.map((code) => languageName(code)).join(", ");
 }
 
 function mediaOf(raw: TmdbResult, hint?: "movie" | "tv"): "movie" | "tv" | null {

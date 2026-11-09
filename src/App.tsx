@@ -3,6 +3,7 @@ import { PRESETS } from "./data/presets";
 import { rankPool } from "./domain/scoring";
 import { similarTo, type SimilarHit } from "./domain/similar";
 import { filterSummary } from "./domain/copy";
+import { languageName, type AudioMatch } from "./domain/languages";
 import { actingPerson, voters } from "./domain/session";
 import type { Title } from "./domain/types";
 import { FilterBar } from "./components/FilterBar";
@@ -14,7 +15,7 @@ import { Stage } from "./components/Stage";
 import { useSession } from "./hooks/useSession";
 import { catalog } from "./services/catalog";
 import { loadLibrary, remember, saveLibrary } from "./services/library";
-import { loadBrowse, loadLiveTitles, probeCatalog, recommendLive, type CatalogMode } from "./services/liveCatalog";
+import { loadBrowse, loadLanguage, loadLiveTitles, probeCatalog, recommendLive, type CatalogMode } from "./services/liveCatalog";
 
 export function App() {
   const { session, saved, notice, dispatch, addTitle } = useSession();
@@ -24,6 +25,8 @@ export function App() {
   const [library, setLibrary] = useState<Record<string, Title>>(() => loadLibrary(window.localStorage));
   const [remoteHits, setRemoteHits] = useState<SimilarHit[] | null>(null);
   const [discover, setDiscover] = useState<Title[]>([]);
+  const [language, setLanguage] = useState("");
+  const [audio, setAudio] = useState<AudioMatch>("original");
   const [compareOpen, setCompareOpen] = useState(false);
   const revealOnMobile = useRef(false);
   const titles = useMemo(
@@ -53,11 +56,13 @@ export function App() {
   useEffect(() => {
     if (!catalogLive) return;
     const controller = new AbortController();
-    void loadBrowse(controller.signal).then((found) => {
-      if (!controller.signal.aborted && found && found.length > 0) setDiscover(found);
+    const request = language && audio === "original" ? loadLanguage(language, controller.signal) : loadBrowse(controller.signal);
+    void request.then((found) => {
+      if (controller.signal.aborted || !found) return;
+      if (found.length > 0 || (language && audio === "original")) setDiscover(found);
     });
     return () => controller.abort();
-  }, [catalogLive]);
+  }, [audio, catalogLive, language]);
 
   useEffect(() => {
     saveLibrary(window.localStorage, library);
@@ -151,6 +156,13 @@ export function App() {
           session={session}
           catalogLive={catalogLive}
           discover={discover}
+          language={language}
+          audio={audio}
+          onLanguage={(next) => {
+            setLanguage(next);
+            if (!next) setAudio("original");
+          }}
+          onAudio={setAudio}
           label={mode === "similar" ? "Name something you like" : "Search a movie or series"}
           onAdd={acceptTitle}
           onRemove={(titleId) => dispatch({ type: "remove", titleId })}
@@ -196,6 +208,7 @@ export function App() {
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
           discover={discover}
+          railHeading={language && audio === "original" ? `${languageName(language)} originals` : undefined}
           extras={
             titles.length > 1 || session.groupMode || mood !== "No preferences" ? (
               <details className="drawer">
