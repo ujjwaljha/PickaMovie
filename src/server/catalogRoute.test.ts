@@ -30,7 +30,11 @@ describe("TMDB catalog route", () => {
     expect(allowedTmdbPath("https://app.example/api/catalog?op=title&media=person&id=1")).toBeNull();
     expect(allowedTmdbPath("https://app.example/api/catalog?op=title&media=movie&id=../configuration")).toBeNull();
     expect(allowedTmdbPath("https://app.example/api/catalog?op=search&q=")).toBeNull();
-    expect(allowedTmdbPath("https://evil.example/?op=search&q=x")).toContain("/3/search/multi?query=x");
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=search&q=a")).toBeNull();
+    expect(allowedTmdbPath("https://app.example/api/catalog?op=search&q=Spirited%20%20Away")).toBe(
+      "/3/search/multi?query=spirited%20away&include_adult=false&language=en-US",
+    );
+    expect(allowedTmdbPath("https://evil.example/?op=search&q=xy")).toContain("/3/search/multi?query=xy");
   });
 
   it("says the catalog is not configured when the key is absent and does not call out", async () => {
@@ -96,6 +100,9 @@ describe("TMDB catalog route", () => {
     expect(blocked.status).toBe(429);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
+    const again = await GET(new Request("https://app.example/api/catalog?op=search&q=cap0"));
+    expect(again.status).toBe(200);
+    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
   });
 
   it("does not open a new window when X-Forwarded-For changes", async () => {
@@ -174,6 +181,9 @@ describe("TMDB catalog route", () => {
     const second = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
     expect(second.status).toBe(200);
     expect(await second.json()).toEqual(firstBody);
+    const third = await GET(new Request("https://app.example/api/catalog?op=search&q=SPIRITED%20"));
+    expect(third.status).toBe(200);
+    expect(await third.json()).toEqual(firstBody);
     expect(calls).toBe(1);
   });
 

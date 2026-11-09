@@ -59,8 +59,8 @@ export function allowedTmdbPath(requestUrl: string): string | null {
   const op = url.searchParams.get("op");
   if (op === "status" || op === "browse") return "";
   if (op === "search") {
-    const query = cleanQuery(url.searchParams.get("q"));
-    if (!query) return null;
+    const query = cleanQuery(url.searchParams.get("q")).toLowerCase();
+    if (query.length < 2) return null;
     return `/3/search/multi?query=${encodeURIComponent(query)}&include_adult=false&language=en-US`;
   }
   if (op !== "title" && op !== "similar") return null;
@@ -350,7 +350,7 @@ function tooMany(weight: number): boolean {
 
 function cleanQuery(value: string | null): string {
   if (!value) return "";
-  return value.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 80);
+  return value.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
 function requestUrl(request: Request): URL {

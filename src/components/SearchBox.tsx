@@ -59,7 +59,7 @@ export function SearchBox({
         setSearching(false);
         setRemote(found);
       });
-    }, 220);
+    }, 500);
     return () => {
       controller.abort();
       window.clearTimeout(timer);
