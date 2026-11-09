@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import handler from "../../api/catalog";
 import { CATALOG_LANGUAGES } from "../domain/languages";
-import { allowedTmdbPath, CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_LANGUAGE_CODES, CATALOG_MINUTE_LIMIT, GET, resetCatalogLimits } from "./catalogRoute";
+import {
+  allowedTmdbPath,
+  CATALOG_CLIENT_MINUTE_LIMIT,
+  CATALOG_LANGUAGE_CODES,
+  CATALOG_MINUTE_LIMIT,
+  CATALOG_NEW_CLIENTS_PER_MINUTE,
+  GET,
+  resetCatalogLimits,
+} from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
 
@@ -104,30 +112,30 @@ describe("TMDB catalog route", () => {
     expect(JSON.stringify(await response.json())).not.toContain("ey-test-token");
   });
 
-  it("stops calling TMDB after the shared per-minute cap", async () => {
+  it("stops new browsers before they can spend the whole shared minute", async () => {
     env().TMDB_API_KEY = "shelf-test-key";
     let calls = 0;
     globalThis.fetch = async () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    const cookies = [await issuedCookie(), await issuedCookie(), await issuedCookie()];
-    let sent = 0;
-    for (const cookie of cookies) {
-      const room = Math.min(CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_MINUTE_LIMIT - sent);
-      for (let i = 0; i < room; i += 1) {
-        const ok = await GET(search(`cap${sent}`, cookie));
+    const admitted = [];
+    for (let i = 0; i < CATALOG_NEW_CLIENTS_PER_MINUTE; i += 1) admitted.push(await issuedCookie());
+    for (const cookie of admitted) {
+      for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
+        const ok = await GET(search(`cap-${cookie.slice(-4)}-${i}`, cookie));
         expect(ok.status).toBe(200);
-        sent += 1;
       }
     }
-    const blocked = await GET(search("cap-over", cookies[2] ?? ""));
+    const extra = await issuedCookie();
+    const blocked = await GET(search("cap-extra", extra));
     expect(blocked.status).toBe(429);
-    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
-    const again = await GET(search("cap0", cookies[0] ?? ""));
-    expect(again.status).toBe(200);
-    expect(calls).toBe(CATALOG_MINUTE_LIMIT);
+    expect(calls).toBe(CATALOG_NEW_CLIENTS_PER_MINUTE * CATALOG_CLIENT_MINUTE_LIMIT);
+    expect(calls).toBeLessThan(CATALOG_MINUTE_LIMIT);
+    const again = await GET(search("cap-extra", admitted[0] ?? ""));
+    expect(again.status).toBe(429);
+    expect(calls).toBe(CATALOG_NEW_CLIENTS_PER_MINUTE * CATALOG_CLIENT_MINUTE_LIMIT);
   });
 
   it("caps one visitor while another visitor can still search", async () => {

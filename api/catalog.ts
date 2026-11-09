@@ -9,12 +9,15 @@ const TMDB_ORIGIN = "https://api.themoviedb.org";
 export const CATALOG_MINUTE_LIMIT = 20;
 /** Fresh upstream calls per minute for one browser. This stays below the app-wide limit. */
 export const CATALOG_CLIENT_MINUTE_LIMIT = 8;
+/** New browsers that may start spending in one minute. Together they stay under the app-wide limit. */
+export const CATALOG_NEW_CLIENTS_PER_MINUTE = 2;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
 export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
 const LISTED_LOOKUPS = 4;
 const HOUR_LIMIT = 200;
 const CLIENT_HOUR_LIMIT = 40;
+const NEW_CLIENTS_PER_HOUR = 4;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const MAX_CLIENTS = 200;
@@ -28,6 +31,8 @@ const inflight = new Map<string, Promise<Saved | null>>();
 const clients = new Map<string, ClientBucket>();
 const minute: Window = { count: 0, reset: 0 };
 const hour: Window = { count: 0, reset: 0 };
+const admittedMinute: Window = { count: 0, reset: 0 };
+const admittedHour: Window = { count: 0, reset: 0 };
 let signingKey: CryptoKey | null = null;
 
 const BROWSE_PATHS = [
@@ -59,6 +64,10 @@ export function resetCatalogLimits(): void {
   minute.reset = 0;
   hour.count = 0;
   hour.reset = 0;
+  admittedMinute.count = 0;
+  admittedMinute.reset = 0;
+  admittedHour.count = 0;
+  admittedHour.reset = 0;
   clients.clear();
 }
 
@@ -431,11 +440,19 @@ function tooMany(client: string, weight: number): boolean {
   const now = Date.now();
   roll(minute, now, MINUTE_MS);
   roll(hour, now, HOUR_MS);
+  roll(admittedMinute, now, MINUTE_MS);
+  roll(admittedHour, now, HOUR_MS);
   if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > HOUR_LIMIT) return true;
+  const isNew = !clients.has(client);
+  if (isNew && (admittedMinute.count >= CATALOG_NEW_CLIENTS_PER_MINUTE || admittedHour.count >= NEW_CLIENTS_PER_HOUR)) return true;
   const bucket = takeClient(client, now);
   roll(bucket.minute, now, MINUTE_MS);
   roll(bucket.hour, now, HOUR_MS);
   if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CLIENT_HOUR_LIMIT) return true;
+  if (isNew && clients.get(client) === bucket) {
+    admittedMinute.count += 1;
+    admittedHour.count += 1;
+  }
   minute.count += weight;
   hour.count += weight;
   bucket.minute.count += weight;
