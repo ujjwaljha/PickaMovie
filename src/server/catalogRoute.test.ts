@@ -89,10 +89,10 @@ describe("TMDB catalog route", () => {
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
     for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+      const ok = await GET(new Request(`https://app.example/api/catalog?op=search&q=cap${i}`));
       expect(ok.status).toBe(200);
     }
-    const blocked = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+    const blocked = await GET(new Request("https://app.example/api/catalog?op=search&q=cap-over"));
     expect(blocked.status).toBe(429);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
@@ -107,14 +107,14 @@ describe("TMDB catalog route", () => {
     };
     for (let i = 0; i < CATALOG_MINUTE_LIMIT; i += 1) {
       const ok = await GET(
-        new Request("https://app.example/api/catalog?op=search&q=spirited", {
+        new Request(`https://app.example/api/catalog?op=search&q=xff${i}`, {
           headers: { "x-forwarded-for": `203.0.113.${i % 250}, 10.0.0.${i % 20}` },
         }),
       );
       expect(ok.status).toBe(200);
     }
     const blocked = await GET(
-      new Request("https://app.example/api/catalog?op=search&q=spirited", {
+      new Request("https://app.example/api/catalog?op=search&q=xff-over", {
         headers: { "x-forwarded-for": "198.51.100.20" },
       }),
     );
@@ -156,6 +156,25 @@ describe("TMDB catalog route", () => {
     ]);
     expect(JSON.stringify(body)).not.toContain("shelf-test-key");
     expect(JSON.stringify(body)).not.toContain("evil.example");
+    const again = await GET(new Request("https://app.example/api/catalog?op=browse"));
+    expect(again.status).toBe(200);
+    expect(calls).toHaveLength(3);
+    expect(await again.json()).toEqual(body);
+  });
+
+  it("does not call TMDB again for a repeated search", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [{ id: 129, media_type: "movie", title: "Spirited Away", poster_path: "/spirited.jpg" }] }), { status: 200 });
+    };
+    const first = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+    const firstBody = await first.json();
+    const second = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(firstBody);
+    expect(calls).toBe(1);
   });
 
   it("answers the host's Node-style call", async () => {

@@ -5,10 +5,18 @@
  */
 
 const TMDB_ORIGIN = "https://api.themoviedb.org";
-/** Shared by every caller. A client-supplied address must not open another window. */
-export const CATALOG_MINUTE_LIMIT = 120;
-const WINDOW_MS = 60_000;
-const buckets = new Map<string, { count: number; reset: number }>();
+/** Fresh upstream calls per minute. A repeated query is served from cache and does not count. */
+export const CATALOG_MINUTE_LIMIT = 20;
+const HOUR_LIMIT = 200;
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+
+type Saved = { body: { configured: true; payload: unknown }; cacheSeconds: number; expires: number };
+
+const cache = new Map<string, Saved>();
+const inflight = new Map<string, Promise<Saved | null>>();
+const minute = { count: 0, reset: 0 };
+const hour = { count: 0, reset: 0 };
 
 const BROWSE_PATHS = [
   "/3/trending/all/week?language=en-US",
@@ -33,7 +41,12 @@ type NodeResponse = {
 type Raw = Record<string, unknown>;
 
 export function resetCatalogLimits(): void {
-  buckets.clear();
+  cache.clear();
+  inflight.clear();
+  minute.count = 0;
+  minute.reset = 0;
+  hour.count = 0;
+  hour.reset = 0;
 }
 
 function readKey(): string {
@@ -96,23 +109,55 @@ async function route(request: Request): Promise<Response> {
   const path = allowedTmdbPath(url.toString());
   if (path === null) return respond({ configured: true, error: "query" }, 400);
   if (op === "status") return respond({ configured: true }, 200);
-  if (tooMany(op === "browse" ? 3 : 1)) return respond({ configured: true, error: "rate" }, 429);
 
-  if (op === "browse") return browse(key);
+  const id = op === "browse" ? "browse" : path;
+  const weight = op === "browse" ? 3 : 1;
+  const ready = recall(id);
+  if (ready) return respond(ready.body, 200, ready.cacheSeconds);
 
+  const pending = inflight.get(id);
+  if (pending) {
+    const shared = await pending;
+    if (!shared) return respond({ configured: true, error: "upstream" }, 502);
+    return respond(shared.body, 200, shared.cacheSeconds);
+  }
+
+  if (tooMany(weight)) return respond({ configured: true, error: "rate" }, 429);
+
+  const job = loadCatalog(op ?? "", key, path).then((saved) => {
+    if (saved) remember(id, saved);
+    return saved;
+  });
+  inflight.set(id, job);
+  try {
+    const saved = await job;
+    if (!saved) return respond({ configured: true, error: "upstream" }, 502);
+    return respond(saved.body, 200, saved.cacheSeconds);
+  } finally {
+    inflight.delete(id);
+  }
+}
+
+async function loadCatalog(op: string, key: string, path: string): Promise<Saved | null> {
+  if (op === "browse") {
+    const results = await browseResults(key);
+    if (!results) return null;
+    return { body: { configured: true, payload: { results } }, cacheSeconds: 3600, expires: 0 };
+  }
   const payload = await tmdb(key, path);
-  if (!payload) return respond({ configured: true, error: "upstream" }, 502);
+  if (!payload) return null;
   if (op === "title") {
     const slim = slimResult(payload);
-    if (!slim) return respond({ configured: true, error: "upstream" }, 502);
-    return respond({ configured: true, payload: slim }, 200, 300);
+    if (!slim) return null;
+    return { body: { configured: true, payload: slim }, cacheSeconds: 3600, expires: 0 };
   }
   const rows = Array.isArray(payload.results) ? payload.results : [];
   const results = rows.map(slimResult).filter((item): item is Raw => item !== null).slice(0, op === "search" ? 16 : 12);
-  return respond({ configured: true, payload: { results } }, 200, 300);
+  const cacheSeconds = op === "search" ? 300 : 1800;
+  return { body: { configured: true, payload: { results } }, cacheSeconds, expires: 0 };
 }
 
-async function browse(key: string): Promise<Response> {
+async function browseResults(key: string): Promise<Raw[] | null> {
   const batches = await Promise.all(BROWSE_PATHS.map((path) => tmdb(key, path)));
   const results: Raw[] = [];
   const seen = new Set<string>();
@@ -129,8 +174,8 @@ async function browse(key: string): Promise<Response> {
     }
     if (results.length === 40) break;
   }
-  if (results.length === 0 && batches.every((payload) => !payload)) return respond({ configured: true, error: "upstream" }, 502);
-  return respond({ configured: true, payload: { results } }, 200, 3600);
+  if (results.length === 0 && batches.every((payload) => !payload)) return null;
+  return results;
 }
 
 async function tmdb(key: string, path: string): Promise<Raw | null> {
@@ -269,15 +314,38 @@ function numberList(value: unknown): number[] {
   return value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
 }
 
+function recall(id: string): Saved | null {
+  const entry = cache.get(id);
+  if (!entry) return null;
+  if (Date.now() >= entry.expires) {
+    cache.delete(id);
+    return null;
+  }
+  return entry;
+}
+
+function remember(id: string, saved: Saved): void {
+  if (cache.size >= 80) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(id, { ...saved, expires: Date.now() + saved.cacheSeconds * 1000 });
+}
+
 function tooMany(weight: number): boolean {
   const now = Date.now();
-  const slot = buckets.get("shared");
-  if (!slot || now >= slot.reset) {
-    buckets.set("shared", { count: weight, reset: now + WINDOW_MS });
-    return weight > CATALOG_MINUTE_LIMIT;
+  if (now >= minute.reset) {
+    minute.count = 0;
+    minute.reset = now + MINUTE_MS;
   }
-  slot.count += weight;
-  return slot.count > CATALOG_MINUTE_LIMIT;
+  if (now >= hour.reset) {
+    hour.count = 0;
+    hour.reset = now + HOUR_MS;
+  }
+  if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > HOUR_LIMIT) return true;
+  minute.count += weight;
+  hour.count += weight;
+  return false;
 }
 
 function cleanQuery(value: string | null): string {
