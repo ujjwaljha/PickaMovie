@@ -19,7 +19,7 @@ export function Stage({
   ranked,
   focusToken,
   compareOpen,
-  onCompare,
+  onToggleDetails,
   mode,
   suggestions,
   liveMatches,
@@ -33,7 +33,7 @@ export function Stage({
   ranked: RankedTitle[];
   focusToken: number;
   compareOpen: boolean;
-  onCompare: () => void;
+  onToggleDetails: () => void;
   mode: "compare" | "similar";
   suggestions: SimilarHit[];
   liveMatches: boolean;
@@ -62,14 +62,15 @@ export function Stage({
             showRank={verdict != null && titles.length > 1}
             onRemove={onRemove}
           />
+          {titles.length > 1 ? (
+            <div className="detail-toggle">
+              <button type="button" className="btn btn-ghost" aria-expanded={compareOpen} onClick={onToggleDetails}>
+                {compareOpen ? "Hide full details" : "Show full details"}
+              </button>
+            </div>
+          ) : null}
           {compareOpen && titles.length > 1 ? (
             <div className="compare-block" id="comparison-table">
-              <div className="compare-block-head">
-                <h3>Side by side</h3>
-                <button type="button" className="btn btn-ghost" aria-pressed="true" onClick={onCompare}>
-                  Compare
-                </button>
-              </div>
               <Comparison
                 titles={titles}
                 ranked={ranked}

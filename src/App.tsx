@@ -104,11 +104,6 @@ export function App() {
   }, [session.order]);
 
   useEffect(() => {
-    if (!tableOpen) return;
-    document.getElementById("comparison-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [tableOpen]);
-
-  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -137,13 +132,9 @@ export function App() {
     setFocusToken((value) => value + 1);
   };
 
-  const revealCompare = () => {
+  const toggleDetails = () => {
     if (titles.length < 2) return;
-    if (tableOpen) {
-      document.getElementById("comparison-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    setCompareOpen(true);
+    setCompareOpen((open) => !open);
   };
 
   const mood = filterSummary(person.filters);
@@ -177,14 +168,9 @@ export function App() {
               </h2>
               <div className="stage-actions">
                 {mode === "compare" && titles.length > 1 ? (
-                  <>
-                    <button type="button" className="btn btn-primary" onClick={weigh}>
-                      Help me pick
-                    </button>
-                    <button type="button" className="btn btn-ghost" aria-pressed={tableOpen} onClick={revealCompare}>
-                      Compare
-                    </button>
-                  </>
+                  <button type="button" className="btn btn-primary" onClick={weigh}>
+                    Help me pick
+                  </button>
                 ) : null}
                 {mode === "similar" || titles.length > 1 ? (
                   <button type="button" className="text-link" onClick={() => setMode(mode === "similar" ? "compare" : "similar")}>
@@ -193,7 +179,7 @@ export function App() {
                 ) : null}
               </div>
             </div>
-            {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more, then compare or ask for a pick.</p> : null}
+            {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more to see the full details.</p> : null}
             {mode === "similar" ? (
               <Shortlist titles={titles} people={session.people} groupMode={session.groupMode} onRemove={(titleId) => dispatch({ type: "remove", titleId })} />
             ) : null}
@@ -205,7 +191,7 @@ export function App() {
           ranked={ranked}
           focusToken={focusToken}
           compareOpen={tableOpen}
-          onCompare={() => setCompareOpen(false)}
+          onToggleDetails={toggleDetails}
           mode={mode}
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
