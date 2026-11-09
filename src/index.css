@@ -1007,6 +1007,20 @@ footer p,
   gap: 0.55rem;
 }
 
+.compare-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: 0.2rem 0 0.75rem;
+}
+
+.compare-block-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
 .stage-head h2 {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3rem);

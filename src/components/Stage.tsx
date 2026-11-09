@@ -18,6 +18,8 @@ export function Stage({
   titles,
   ranked,
   focusToken,
+  compareOpen,
+  onCompare,
   mode,
   suggestions,
   liveMatches,
@@ -30,6 +32,8 @@ export function Stage({
   titles: Title[];
   ranked: RankedTitle[];
   focusToken: number;
+  compareOpen: boolean;
+  onCompare: () => void;
   mode: "compare" | "similar";
   suggestions: SimilarHit[];
   liveMatches: boolean;
@@ -58,9 +62,14 @@ export function Stage({
             showRank={verdict != null && titles.length > 1}
             onRemove={onRemove}
           />
-          {verdict && titles.length > 1 ? (
-            <details className="drawer">
-              <summary>See the full comparison</summary>
+          {compareOpen && titles.length > 1 ? (
+            <div className="compare-block" id="comparison-table">
+              <div className="compare-block-head">
+                <h3>Side by side</h3>
+                <button type="button" className="btn btn-ghost" aria-pressed="true" onClick={onCompare}>
+                  Compare
+                </button>
+              </div>
               <Comparison
                 titles={titles}
                 ranked={ranked}
@@ -70,7 +79,7 @@ export function Stage({
                 moodLabel={moodLabel(session)}
                 onRemove={onRemove}
               />
-            </details>
+            </div>
           ) : null}
         </>
       ) : null}

@@ -24,6 +24,7 @@ export function App() {
   const [library, setLibrary] = useState<Record<string, Title>>(() => loadLibrary(window.localStorage));
   const [remoteHits, setRemoteHits] = useState<SimilarHit[] | null>(null);
   const [discover, setDiscover] = useState<Title[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
   const revealOnMobile = useRef(false);
   const titles = useMemo(
     () =>
@@ -39,6 +40,7 @@ export function App() {
   const suggestions = remoteHits ?? shelfHits;
   const catalogLive = catalogMode === "live";
   const titleKey = titles.map((title) => title.id).join(".");
+  const tableOpen = compareOpen && mode === "compare" && titles.length > 1;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,6 +104,11 @@ export function App() {
   }, [session.order]);
 
   useEffect(() => {
+    if (!tableOpen) return;
+    document.getElementById("comparison-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [tableOpen]);
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
@@ -128,6 +135,15 @@ export function App() {
     if (titles.length < 2) return;
     dispatch({ type: "weigh", titles });
     setFocusToken((value) => value + 1);
+  };
+
+  const revealCompare = () => {
+    if (titles.length < 2) return;
+    if (tableOpen) {
+      document.getElementById("comparison-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setCompareOpen(true);
   };
 
   const mood = filterSummary(person.filters);
@@ -161,9 +177,14 @@ export function App() {
               </h2>
               <div className="stage-actions">
                 {mode === "compare" && titles.length > 1 ? (
-                  <button type="button" className="btn btn-primary" onClick={weigh}>
-                    Help me pick
-                  </button>
+                  <>
+                    <button type="button" className="btn btn-primary" onClick={weigh}>
+                      Help me pick
+                    </button>
+                    <button type="button" className="btn btn-ghost" aria-pressed={tableOpen} onClick={revealCompare}>
+                      Compare
+                    </button>
+                  </>
                 ) : null}
                 {mode === "similar" || titles.length > 1 ? (
                   <button type="button" className="text-link" onClick={() => setMode(mode === "similar" ? "compare" : "similar")}>
@@ -172,7 +193,7 @@ export function App() {
                 ) : null}
               </div>
             </div>
-            {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more, then ask for a pick.</p> : null}
+            {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more, then compare or ask for a pick.</p> : null}
             {mode === "similar" ? (
               <Shortlist titles={titles} people={session.people} groupMode={session.groupMode} onRemove={(titleId) => dispatch({ type: "remove", titleId })} />
             ) : null}
@@ -183,6 +204,8 @@ export function App() {
           titles={titles}
           ranked={ranked}
           focusToken={focusToken}
+          compareOpen={tableOpen}
+          onCompare={() => setCompareOpen(false)}
           mode={mode}
           suggestions={suggestions}
           liveMatches={remoteHits !== null}
