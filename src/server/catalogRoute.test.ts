@@ -73,7 +73,7 @@ describe("TMDB catalog route", () => {
       calls.push(String(input));
       return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { "content-type": "application/json" } });
     };
-    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+    const response = await GET(search("spirited", await issuedCookie()));
     const body = await response.json();
     expect(body).toEqual({ configured: true, payload: { results: [] } });
     expect(calls[0]).toContain("https://api.themoviedb.org/3/search/multi?");
@@ -94,7 +94,9 @@ describe("TMDB catalog route", () => {
     expect(blocked.status).toBe(400);
     expect(calls).toHaveLength(0);
 
-    const response = await GET(new Request("https://app.example/api/catalog?op=title&media=movie&id=129"));
+    const response = await GET(
+      new Request("https://app.example/api/catalog?op=title&media=movie&id=129", { headers: { cookie: await issuedCookie() } }),
+    );
     expect(response.status).toBe(200);
     expect(calls[0]?.url).not.toContain("api_key");
     expect(calls[0]?.url).not.toContain("ey-test-token");
@@ -109,21 +111,21 @@ describe("TMDB catalog route", () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    const first = await issuedCookie();
-    const second = await issuedCookie();
-    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(search(`cap${i}`, first));
-      expect(ok.status).toBe(200);
+    const cookies = [await issuedCookie(), await issuedCookie(), await issuedCookie()];
+    let sent = 0;
+    for (const cookie of cookies) {
+      const room = Math.min(CATALOG_CLIENT_MINUTE_LIMIT, CATALOG_MINUTE_LIMIT - sent);
+      for (let i = 0; i < room; i += 1) {
+        const ok = await GET(search(`cap${sent}`, cookie));
+        expect(ok.status).toBe(200);
+        sent += 1;
+      }
     }
-    for (let i = 0; i < CATALOG_MINUTE_LIMIT - CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(search(`cap-b${i}`, second));
-      expect(ok.status).toBe(200);
-    }
-    const blocked = await GET(search("cap-over", second));
+    const blocked = await GET(search("cap-over", cookies[2] ?? ""));
     expect(blocked.status).toBe(429);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
     expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
-    const again = await GET(search("cap0", first));
+    const again = await GET(search("cap0", cookies[0] ?? ""));
     expect(again.status).toBe(200);
     expect(calls).toBe(CATALOG_MINUTE_LIMIT);
   });
@@ -152,15 +154,15 @@ describe("TMDB catalog route", () => {
     expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT + 1);
   });
 
-  it("counts forged cookies as one anonymous visitor", async () => {
+  it("does not spend TMDB when the visitor has no signed cookie", async () => {
     env().TMDB_API_KEY = "shelf-test-key";
     let calls = 0;
     globalThis.fetch = async () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
-    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(
+    for (let i = 0; i < 30; i += 1) {
+      const blocked = await GET(
         new Request(`https://app.example/api/catalog?op=search&q=anon${i}`, {
           headers: {
             cookie: `w2w=${i.toString(16).padStart(16, "0")}.${"ab".repeat(16)}`,
@@ -168,46 +170,16 @@ describe("TMDB catalog route", () => {
           },
         }),
       );
-      expect(ok.status).toBe(200);
+      expect(blocked.status).toBe(429);
+      if (i === 0) {
+        expect(blocked.headers.get("set-cookie")).toContain("HttpOnly");
+        expect(blocked.headers.get("set-cookie")).not.toContain("shelf-test-key");
+      }
     }
-    const forged = await GET(
-      new Request("https://app.example/api/catalog?op=search&q=anon-over", {
-        headers: { cookie: "w2w=ffffffffffffffff.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "x-forwarded-for": "203.0.113.50" },
-      }),
-    );
-    expect(forged.status).toBe(429);
-    expect(forged.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(forged.headers.get("set-cookie")).not.toContain("shelf-test-key");
-    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
-
-    const real = await issuedCookie();
-    const allowed = await GET(search("after-anon", real));
+    expect(calls).toBe(0);
+    const allowed = await GET(search("after-anon", await issuedCookie()));
     expect(allowed.status).toBe(200);
-    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT + 1);
-  });
-
-  it("does not open a new window when X-Forwarded-For changes", async () => {
-    env().TMDB_API_KEY = "shelf-test-key";
-    let calls = 0;
-    globalThis.fetch = async () => {
-      calls += 1;
-      return new Response(JSON.stringify({ results: [] }), { status: 200 });
-    };
-    for (let i = 0; i < CATALOG_CLIENT_MINUTE_LIMIT; i += 1) {
-      const ok = await GET(
-        new Request(`https://app.example/api/catalog?op=search&q=xff${i}`, {
-          headers: { "x-forwarded-for": `203.0.113.${i % 250}, 10.0.0.${i % 20}` },
-        }),
-      );
-      expect(ok.status).toBe(200);
-    }
-    const blocked = await GET(
-      new Request("https://app.example/api/catalog?op=search&q=xff-over", {
-        headers: { "x-forwarded-for": "198.51.100.20" },
-      }),
-    );
-    expect(blocked.status).toBe(429);
-    expect(calls).toBe(CATALOG_CLIENT_MINUTE_LIMIT);
+    expect(calls).toBe(1);
   });
 
   it("filters a search to one original language", async () => {
@@ -222,7 +194,7 @@ describe("TMDB catalog route", () => {
         ],
       });
     };
-    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=film&lang=hi"));
+    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=film&lang=hi", { headers: { cookie: await issuedCookie() } }));
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(calls).toHaveLength(1);
@@ -248,7 +220,9 @@ describe("TMDB catalog route", () => {
         ],
       });
     };
-    const response = await GET(new Request("https://app.example/api/catalog?op=search&q=film&lang=hi&audio=listed"));
+    const response = await GET(
+      new Request("https://app.example/api/catalog?op=search&q=film&lang=hi&audio=listed", { headers: { cookie: await issuedCookie() } }),
+    );
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body.payload.results.map((item: { title?: string; listed_in?: string[] }) => [item.title, item.listed_in])).toEqual([["Dubbed Film", ["hi", "fr"]]]);
@@ -268,7 +242,7 @@ describe("TMDB catalog route", () => {
       }
       return Response.json({ results: [{ id: 9, name: "Hindi Series", original_language: "hi", poster_path: "/series.jpg" }] });
     };
-    const response = await GET(new Request("https://app.example/api/catalog?op=language&lang=hi"));
+    const response = await GET(new Request("https://app.example/api/catalog?op=language&lang=hi", { headers: { cookie: await issuedCookie() } }));
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(calls).toHaveLength(2);
@@ -301,7 +275,7 @@ describe("TMDB catalog route", () => {
         results: [{ id: 1396, name: "Breaking Bad", poster_path: "/bb.jpg", vote_average: 8.9 }],
       });
     };
-    const response = await GET(new Request("https://app.example/api/catalog?op=browse"));
+    const response = await GET(new Request("https://app.example/api/catalog?op=browse", { headers: { cookie: await issuedCookie() } }));
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("max-age=3600");
@@ -326,7 +300,8 @@ describe("TMDB catalog route", () => {
       calls += 1;
       return new Response(JSON.stringify({ results: [{ id: 129, media_type: "movie", title: "Spirited Away", poster_path: "/spirited.jpg" }] }), { status: 200 });
     };
-    const first = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
+    const cookie = await issuedCookie();
+    const first = await GET(search("spirited", cookie));
     const firstBody = await first.json();
     const second = await GET(new Request("https://app.example/api/catalog?op=search&q=spirited"));
     expect(second.status).toBe(200);

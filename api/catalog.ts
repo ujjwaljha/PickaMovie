@@ -7,14 +7,14 @@
 const TMDB_ORIGIN = "https://api.themoviedb.org";
 /** Fresh upstream calls per minute for the whole app. A repeated query is served from cache and does not count. */
 export const CATALOG_MINUTE_LIMIT = 20;
-/** Fresh upstream calls per minute for one browser. Forged cookies share the anonymous bucket. */
-export const CATALOG_CLIENT_MINUTE_LIMIT = 12;
+/** Fresh upstream calls per minute for one browser. This stays below the app-wide limit. */
+export const CATALOG_CLIENT_MINUTE_LIMIT = 8;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
 export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
 const LISTED_LOOKUPS = 4;
 const HOUR_LIMIT = 200;
-const CLIENT_HOUR_LIMIT = 60;
+const CLIENT_HOUR_LIMIT = 40;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const MAX_CLIENTS = 200;
@@ -148,6 +148,7 @@ async function route(request: Request): Promise<Response> {
     return send(shared.body, 200, shared.cacheSeconds);
   }
 
+  if (visitor.id === "anon") return send({ configured: true, error: "rate" }, 429);
   if (tooMany(visitor.id, weight)) return send({ configured: true, error: "rate" }, 429);
 
   const job = loadCatalog(op ?? "", key, path, lang, audio).then((saved) => {

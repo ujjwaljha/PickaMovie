@@ -78,12 +78,13 @@ function titlesFromPayload(payload: unknown): Title[] {
   return results.map((item) => mapTmdbTitle(asResult(item))).filter((item): item is Title => item !== null);
 }
 
-async function read(path: string, signal?: AbortSignal): Promise<Envelope | null> {
+async function read(path: string, signal?: AbortSignal, attempt = 0): Promise<Envelope | null> {
   try {
     const response = await fetch(path, { signal, headers: { accept: "application/json" } });
     const body = (await response.json()) as Envelope;
     if (!body || typeof body !== "object") return null;
     if (body.configured === false) return { configured: false };
+    if (response.status === 429 && attempt === 0) return read(path, signal, 1);
     if (!response.ok) return null;
     return body;
   } catch {
