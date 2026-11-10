@@ -4,6 +4,7 @@ import { rankPool } from "./domain/scoring";
 import { similarTo, type SimilarHit } from "./domain/similar";
 import { filterSummary } from "./domain/copy";
 import { languageName, type AudioMatch } from "./domain/languages";
+import { regionFromLocale, WATCH_REGIONS } from "./domain/regions";
 import { actingPerson, voters } from "./domain/session";
 import type { Title } from "./domain/types";
 import { FilterBar } from "./components/FilterBar";
@@ -27,6 +28,7 @@ export function App() {
   const [discover, setDiscover] = useState<Title[]>([]);
   const [language, setLanguage] = useState("");
   const [audio, setAudio] = useState<AudioMatch>("original");
+  const [region, setRegion] = useState(() => regionFromLocale(window.navigator.language));
   const [compareOpen, setCompareOpen] = useState(false);
   const revealOnMobile = useRef(false);
   const titles = useMemo(
@@ -69,15 +71,19 @@ export function App() {
   }, [library]);
 
   useEffect(() => {
-    const missing = session.order.filter((id) => id.startsWith("tmdb-") && !library[id]);
+    const missing = session.order.filter((id) => {
+      if (!id.startsWith("tmdb-")) return false;
+      const saved = library[id];
+      return !saved || saved.watch?.region !== region;
+    });
     if (missing.length === 0) return;
     const controller = new AbortController();
-    void loadLiveTitles(missing, controller.signal).then((found) => {
+    void loadLiveTitles(missing, controller.signal, region).then((found) => {
       if (controller.signal.aborted || found.length === 0) return;
       setLibrary((current) => remember(current, found, session.order));
     });
     return () => controller.abort();
-  }, [library, session.order]);
+  }, [library, region, session.order]);
 
   useEffect(() => {
     if (mode !== "similar" || !catalogLive) {
@@ -124,11 +130,6 @@ export function App() {
     setLibrary((current) => remember(current, [title], [...session.order, title.id]));
     revealOnMobile.current = true;
     addTitle(title.id);
-    if (!title.id.startsWith("tmdb-")) return;
-    void loadLiveTitles([title.id]).then((found) => {
-      if (found.length === 0) return;
-      setLibrary((current) => remember(current, found, [...session.order, title.id]));
-    });
   };
 
   const weigh = () => {
@@ -191,6 +192,24 @@ export function App() {
                 ) : null}
               </div>
             </div>
+            {catalogLive && titles.some((title) => title.id.startsWith("tmdb-")) ? (
+              <label className="search-filter where-filter">
+                Streaming in
+                <select
+                  value={region}
+                  onChange={(event) => {
+                    const found = WATCH_REGIONS.find((item) => item.code === event.target.value);
+                    if (found) setRegion(found.code);
+                  }}
+                >
+                  {WATCH_REGIONS.map((item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             {mode === "compare" && titles.length === 1 ? <p className="hint">Add one more to see the full details.</p> : null}
             {mode === "similar" ? (
               <Shortlist titles={titles} people={session.people} groupMode={session.groupMode} onRemove={(titleId) => dispatch({ type: "remove", titleId })} />

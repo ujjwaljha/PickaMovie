@@ -7,6 +7,7 @@ import type { Person } from "../domain/session";
 import type { Filters, Title } from "../domain/types";
 import { Meter } from "./Meter";
 import { Poster } from "./Poster";
+import { WatchLine } from "./WatchLine";
 
 export function Comparison({
   titles,
@@ -108,6 +109,16 @@ export function Comparison({
         </div>
       ),
     },
+    ...(titles.some((title) => title.watch)
+      ? [
+          {
+            id: "watch",
+            label: "Where to watch",
+            best: new Set<string>(),
+            render: (title: Title) => (title.watch ? <WatchLine title={title} /> : <span>No listing</span>),
+          },
+        ]
+      : []),
     {
       id: "fit",
       label: "Fit tonight",
@@ -212,7 +223,7 @@ export function Comparison({
       </div>
       <p className="shelf-note">
         {titles.some((title) => title.id.startsWith("tmdb-"))
-          ? "Catalog scores come from TMDB. Mood and pacing are estimated from the genres."
+          ? "Catalog scores come from TMDB. Mood and pacing are estimated from the genres. Streaming names are the services TMDB lists, and they can change."
           : "Scores on this shelf are written for the sample set."}
       </p>
     </div>

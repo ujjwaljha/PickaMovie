@@ -19,9 +19,12 @@ export const CATALOG_ACTIVE_CLIENTS_PER_HOUR = 4;
 export const CATALOG_HOUR_LIMIT = 200;
 /** Fresh upstream calls per hour for one browser. */
 export const CATALOG_CLIENT_HOUR_LIMIT = 40;
+/** Countries a visitor can ask about. The same codes live in the app's region list. */
+export const CATALOG_REGION_CODES = ["US", "IN", "GB", "CA", "AU", "DE", "FR", "ES", "IT", "BR", "MX", "JP", "KR", "AE", "SG", "ID", "TH", "PH", "ZA", "NG", "NL", "SE", "NZ", "TR", "AR"] as const;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
 export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
+const REGION_CODES = new Set<string>(CATALOG_REGION_CODES);
 const LISTED_LOOKUPS = 4;
 const NEW_CLIENTS_PER_HOUR = 4;
 const MINUTE_MS = 60_000;
@@ -116,7 +119,7 @@ export function allowedTmdbPath(requestUrl: string): string | null {
   const media = url.searchParams.get("media");
   const id = url.searchParams.get("id");
   if ((media !== "movie" && media !== "tv") || !id || !/^\d{1,10}$/.test(id)) return null;
-  if (op === "title") return `/3/${media}/${id}?append_to_response=credits&language=en-US`;
+  if (op === "title") return `/3/${media}/${id}?append_to_response=credits,watch/providers&language=en-US`;
   return `/3/${media}/${id}/recommendations?language=en-US`;
 }
 
@@ -165,16 +168,18 @@ async function route(request: Request): Promise<Response> {
 
   const lang = languageCode(url.searchParams.get("lang")) ?? "";
   const audio = audioMode(url.searchParams.get("audio")) ?? "original";
+  const region = op === "title" ? regionCode(url.searchParams.get("region")) : "";
+  if (region === null) return send({ configured: true, error: "query" }, 400);
   const id = op === "browse" ? "browse" : op === "language" ? `language:${lang}` : op === "search" ? searchCacheId(path, lang, audio) : path;
   const weight = op === "browse" ? 3 : op === "language" ? 2 : op === "search" && lang && audio === "listed" ? 1 + LISTED_LOOKUPS : 1;
   const ready = recall(id);
-  if (ready) return send(ready.body, 200, ready.cacheSeconds);
+  if (ready) return send(present(op ?? "", ready.body, region), 200, ready.cacheSeconds);
 
   const pending = inflight.get(id);
   if (pending) {
     const shared = await pending;
     if (!shared) return send({ configured: true, error: "upstream" }, 502);
-    return send(shared.body, 200, shared.cacheSeconds);
+    return send(present(op ?? "", shared.body, region), 200, shared.cacheSeconds);
   }
 
   if (visitor.id === "anon") return send({ configured: true, error: "rate" }, 429);
@@ -188,7 +193,7 @@ async function route(request: Request): Promise<Response> {
   try {
     const saved = await job;
     if (!saved) return send({ configured: true, error: "upstream" }, 502);
-    return send(saved.body, 200, saved.cacheSeconds);
+    return send(present(op ?? "", saved.body, region), 200, saved.cacheSeconds);
   } finally {
     inflight.delete(id);
   }
@@ -210,6 +215,7 @@ async function loadCatalog(op: string, key: string, path: string, lang: string, 
   if (op === "title") {
     const slim = slimResult(payload);
     if (!slim) return null;
+    slim.watch_offers = watchOffers(payload);
     return { body: { configured: true, payload: slim }, cacheSeconds: 3600, expires: 0 };
   }
   if (op === "search") {
@@ -261,6 +267,70 @@ function languageCode(value: string | null): string | null {
   const code = value.trim().toLowerCase();
   if (!LANGUAGE_CODES.has(code)) return null;
   return code;
+}
+
+function regionCode(value: string | null): string | null {
+  if (!value) return "";
+  const code = value.trim().toUpperCase();
+  if (!REGION_CODES.has(code)) return null;
+  return code;
+}
+
+function present(op: string, body: { configured: true; payload: unknown }, region: string): { configured: true; payload: unknown } {
+  if (op !== "title" || !body.payload || typeof body.payload !== "object") return body;
+  const payload = { ...(body.payload as Raw) };
+  const offers = payload.watch_offers;
+  delete payload.watch_offers;
+  if (!region) return { ...body, payload };
+  const entry = offers && typeof offers === "object" ? (offers as Raw)[region] : undefined;
+  const watch: Raw = { region };
+  if (entry && typeof entry === "object") Object.assign(watch, entry);
+  payload.watch = watch;
+  return { ...body, payload };
+}
+
+function watchOffers(payload: Raw): Raw {
+  const block = payload["watch/providers"];
+  const results = block && typeof block === "object" ? (block as Raw).results : undefined;
+  const offers: Raw = {};
+  if (!results || typeof results !== "object") return offers;
+  for (const code of CATALOG_REGION_CODES) {
+    const entry = (results as Raw)[code];
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Raw;
+    const offer: Raw = {};
+    const link = watchLink(record);
+    if (link) offer.link = link;
+    for (const key of ["flatrate", "free", "ads", "rent", "buy"] as const) {
+      const names = offerNames(record, key);
+      if (names.length > 0) offer[key] = names;
+    }
+    if (Object.keys(offer).length > 0) offers[code] = offer;
+  }
+  return offers;
+}
+
+function offerNames(entry: Raw, key: string): string[] {
+  const rows = Array.isArray(entry[key]) ? entry[key] : [];
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const record = row as Raw;
+      const name = text(record.provider_name, 40);
+      const priority = typeof record.display_priority === "number" ? record.display_priority : 999;
+      return name ? { name, priority } : null;
+    })
+    .filter((item): item is { name: string; priority: number } => item !== null)
+    .sort((left, right) => left.priority - right.priority)
+    .map((item) => item.name)
+    .filter((name, index, all) => all.indexOf(name) === index)
+    .slice(0, 4);
+}
+
+function watchLink(entry: Raw): string | undefined {
+  const link = typeof entry.link === "string" ? entry.link : "";
+  if (!/^https:\/\/www\.themoviedb\.org\/[A-Za-z0-9/?=&%._~-]{1,180}$/.test(link)) return undefined;
+  return link;
 }
 
 function audioMode(value: string | null): "original" | "listed" | null {

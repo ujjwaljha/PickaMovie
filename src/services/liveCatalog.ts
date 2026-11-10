@@ -36,13 +36,15 @@ export async function loadBrowse(signal?: AbortSignal): Promise<Title[] | null> 
   return titlesFromPayload(body.payload);
 }
 
-export async function loadLiveTitles(ids: readonly string[], signal?: AbortSignal): Promise<Title[]> {
+export async function loadLiveTitles(ids: readonly string[], signal?: AbortSignal, region?: string): Promise<Title[]> {
   const found: Title[] = [];
   for (const id of ids) {
     const parsed = /^tmdb-(movie|tv)-(\d{1,10})$/.exec(id);
     if (!parsed) continue;
     const media = parsed[1];
-    const body = await read(`/api/catalog?op=title&media=${media}&id=${parsed[2]}`, signal);
+    const params = new URLSearchParams({ op: "title", media, id: parsed[2] });
+    if (region) params.set("region", region);
+    const body = await read(`/api/catalog?${params.toString()}`, signal);
     if (!body || body.configured !== true) continue;
     const title = mapTmdbTitle(asResult(body.payload), media === "tv" ? "tv" : "movie");
     if (title) found.push(title);

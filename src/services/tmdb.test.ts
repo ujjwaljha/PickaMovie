@@ -64,6 +64,24 @@ describe("TMDB adapter", () => {
     expect(title?.creator).toBe("Hayao Miyazaki");
     expect(title?.highlights[1]).toBe("Hayao Miyazaki");
     expect(mapTmdbTitle({ ...spirited, poster_path: "https://evil.example/x.jpg" })?.posterUrl).toBeUndefined();
+    const listed = mapTmdbTitle({
+      ...spirited,
+      watch: {
+        region: "IN",
+        link: "https://www.themoviedb.org/movie/129/watch?locale=IN",
+        flatrate: ["Netflix"],
+        ads: ["Pluto TV"],
+      },
+    });
+    expect(listed?.watch).toEqual({
+      region: "IN",
+      stream: ["Netflix", "Pluto TV"],
+      rent: [],
+      buy: [],
+      link: "https://www.themoviedb.org/movie/129/watch?locale=IN",
+    });
+    expect(mapTmdbTitle({ ...spirited, watch: { region: "IN", link: "javascript:alert(1)", flatrate: ["Netflix"] } })?.watch?.link).toBeUndefined();
+    expect(mapTmdbTitle({ ...spirited, watch: { region: "ZZ", flatrate: ["Secret"] } })?.watch).toBeUndefined();
     expect(mapTmdbTitle({ ...spirited, poster_path: "/../secret.jpg" })?.posterUrl).toBeUndefined();
   });
 

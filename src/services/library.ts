@@ -1,3 +1,4 @@
+import { WATCH_REGIONS } from "../domain/regions";
 import type { Kind, Pacing, Title } from "../domain/types";
 import { posterUrlFrom } from "./tmdb";
 
@@ -54,9 +55,26 @@ function sanitizeStoredTitle(raw: unknown): Title | null {
   if (!KINDS.has(title.kind) || !PACING.has(title.pacing)) return null;
   if (!title.fits || typeof title.fits !== "object") return null;
   const posterUrl = posterUrlFrom(posterPath(title.posterUrl));
+  const watch = cleanWatch(title.watch);
   const next: Title = { ...title };
   delete next.posterUrl;
-  return posterUrl ? { ...next, posterUrl } : next;
+  delete next.watch;
+  return { ...next, ...(posterUrl ? { posterUrl } : {}), ...(watch ? { watch } : {}) };
+}
+
+const LISTING = /^https:\/\/www\.themoviedb\.org\/[A-Za-z0-9/?=&%._~-]{1,180}$/;
+
+function cleanWatch(value: unknown): Title["watch"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const watch = value as NonNullable<Title["watch"]>;
+  if (!WATCH_REGIONS.some((region) => region.code === watch.region)) return undefined;
+  const link = typeof watch.link === "string" && LISTING.test(watch.link) ? watch.link : undefined;
+  return { region: watch.region, stream: cleanNames(watch.stream), rent: cleanNames(watch.rent), buy: cleanNames(watch.buy), ...(link ? { link } : {}) };
+}
+
+function cleanNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0 && item.length <= 40).slice(0, 4);
 }
 
 function posterPath(url: string | undefined): string | undefined {

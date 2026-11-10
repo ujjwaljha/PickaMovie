@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import handler from "../../api/catalog";
 import { CATALOG_LANGUAGES } from "../domain/languages";
+import { WATCH_REGIONS } from "../domain/regions";
 import {
   allowedTmdbPath,
   CATALOG_ACTIVE_CLIENTS_PER_HOUR,
@@ -10,6 +11,7 @@ import {
   CATALOG_LANGUAGE_CODES,
   CATALOG_MINUTE_LIMIT,
   CATALOG_NEW_CLIENTS_PER_MINUTE,
+  CATALOG_REGION_CODES,
   CATALOG_SPENDERS_PER_MINUTE,
   GET,
   resetCatalogLimits,
@@ -48,7 +50,7 @@ describe("TMDB catalog route", () => {
       "/3/search/multi?query=spirited%20away&include_adult=false&language=en-US",
     );
     expect(allowedTmdbPath("https://app.example/api/catalog?op=title&media=movie&id=129")).toBe(
-      "/3/movie/129?append_to_response=credits&language=en-US",
+      "/3/movie/129?append_to_response=credits,watch/providers&language=en-US",
     );
     expect(allowedTmdbPath("https://app.example/api/catalog?op=similar&media=tv&id=1396")).toBe(
       "/3/tv/1396/recommendations?language=en-US",
@@ -65,6 +67,7 @@ describe("TMDB catalog route", () => {
     expect(allowedTmdbPath("https://app.example/api/catalog?op=language&lang=hi")).toBe("");
     expect(allowedTmdbPath("https://app.example/api/catalog?op=language&lang=hi&audio=listed")).toBeNull();
     expect([...CATALOG_LANGUAGE_CODES]).toEqual(CATALOG_LANGUAGES.map((language) => language.code));
+    expect([...CATALOG_REGION_CODES]).toEqual(WATCH_REGIONS.map((region) => region.code));
   });
 
   it("says the catalog is not configured when the key is absent and does not call out", async () => {
@@ -111,10 +114,66 @@ describe("TMDB catalog route", () => {
       new Request("https://app.example/api/catalog?op=title&media=movie&id=129", { headers: { cookie: await issuedCookie() } }),
     );
     expect(response.status).toBe(200);
+    expect(decodeURIComponent(calls[0]?.url ?? "")).toContain("append_to_response=credits,watch/providers");
     expect(calls[0]?.url).not.toContain("api_key");
     expect(calls[0]?.url).not.toContain("ey-test-token");
     expect(calls[0]?.authorization).toBe("Bearer ey-test-token");
-    expect(JSON.stringify(await response.json())).not.toContain("ey-test-token");
+    const body = JSON.stringify(await response.json());
+    expect(body).not.toContain("ey-test-token");
+    expect(body).not.toContain("watch_offers");
+  });
+
+  it("returns one country's streaming names from the same title lookup", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({
+          id: 129,
+          title: "Spirited Away",
+          "watch/providers": {
+            results: {
+              IN: {
+                link: "https://www.themoviedb.org/movie/129/watch?locale=IN",
+                flatrate: [
+                  { provider_name: "Netflix", display_priority: 1 },
+                  { provider_name: "JioHotstar", display_priority: 0 },
+                ],
+              },
+              US: {
+                link: "javascript:alert(1)",
+                flatrate: [{ provider_name: "Hulu", display_priority: 2 }],
+              },
+              ZZ: { flatrate: [{ provider_name: "Secret Stream", display_priority: 0 }] },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    };
+    const cookie = await issuedCookie();
+    const blocked = await GET(new Request("https://app.example/api/catalog?op=title&media=movie&id=129&region=ZZ", { headers: { cookie } }));
+    expect(blocked.status).toBe(400);
+    expect(calls).toBe(0);
+
+    const india = await GET(new Request("https://app.example/api/catalog?op=title&media=movie&id=129&region=in", { headers: { cookie } }));
+    const indiaBody = await india.json();
+    expect(india.status).toBe(200);
+    expect(indiaBody.payload.watch).toEqual({
+      region: "IN",
+      link: "https://www.themoviedb.org/movie/129/watch?locale=IN",
+      flatrate: ["JioHotstar", "Netflix"],
+    });
+    expect(JSON.stringify(indiaBody)).not.toContain("Hulu");
+    expect(JSON.stringify(indiaBody)).not.toContain("Secret Stream");
+    expect(JSON.stringify(indiaBody)).not.toContain("watch_offers");
+
+    const states = await GET(new Request("https://app.example/api/catalog?op=title&media=movie&id=129&region=US", { headers: { cookie } }));
+    const statesBody = await states.json();
+    expect(statesBody.payload.watch).toEqual({ region: "US", flatrate: ["Hulu"] });
+    expect(JSON.stringify(statesBody)).not.toContain("javascript:");
+    expect(calls).toBe(1);
   });
 
   it("keeps every browser allowance under the shared ceiling", () => {

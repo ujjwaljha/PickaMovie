@@ -1,4 +1,5 @@
 import { languageName } from "../domain/languages";
+import { WATCH_REGIONS } from "../domain/regions";
 import type { Fits, Kind, Pacing, Title } from "../domain/types";
 
 /**
@@ -29,6 +30,15 @@ export type TmdbResult = {
   credits?: { crew?: { job?: string; name?: string }[]; cast?: { name?: string; order?: number }[] };
   last_episode_to_air?: { runtime?: number };
   number_of_seasons?: number;
+  watch?: {
+    region?: string;
+    link?: string;
+    flatrate?: string[];
+    free?: string[];
+    ads?: string[];
+    rent?: string[];
+    buy?: string[];
+  };
 };
 
 export type TmdbRequester = (path: string) => Promise<unknown>;
@@ -104,6 +114,7 @@ export function mapTmdbTitle(raw: TmdbResult, hint?: "movie" | "tv"): Title | nu
     aliases: [],
     fits: inferFits(genreIds, pacing),
     ...(posterUrl ? { posterUrl } : {}),
+    ...watchFields(raw),
   };
 }
 
@@ -129,6 +140,30 @@ export function createTmdbSource(request: TmdbRequester) {
         if (title) titles.push(title);
       }
       return titles;
+    },
+  };
+}
+
+const LISTING = /^https:\/\/www\.themoviedb\.org\/[A-Za-z0-9/?=&%._~-]{1,180}$/;
+
+function watchFields(raw: TmdbResult): { watch: NonNullable<Title["watch"]> } | Record<string, never> {
+  const watch = raw.watch;
+  if (!watch?.region || !WATCH_REGIONS.some((region) => region.code === watch.region)) return {};
+  const names = (value: readonly string[] | undefined) =>
+    (value ?? [])
+      .map((name) => name.replace(/[\u0000-\u001F]/g, "").trim())
+      .filter((name) => name.length > 0 && name.length <= 40)
+      .filter((name, index, all) => all.indexOf(name) === index)
+      .slice(0, 4);
+  const stream = names([...(watch.flatrate ?? []), ...(watch.free ?? []), ...(watch.ads ?? [])]);
+  const link = watch.link && LISTING.test(watch.link) ? watch.link : undefined;
+  return {
+    watch: {
+      region: watch.region,
+      stream,
+      rent: names(watch.rent),
+      buy: names(watch.buy),
+      ...(link ? { link } : {}),
     },
   };
 }

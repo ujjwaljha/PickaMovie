@@ -304,6 +304,11 @@ footer p,
   font-weight: 500;
 }
 
+.search-filter select:focus {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
 .search-field svg {
   position: absolute;
   left: 0.9rem;
@@ -1524,6 +1529,11 @@ footer p + p {
   font-size: 0.95rem;
 }
 
+.where-filter {
+  max-width: 16rem;
+  margin-bottom: 0.75rem;
+}
+
 .shortlist {
   border: 0;
   background: transparent;
@@ -1579,6 +1589,18 @@ footer p + p {
   margin: 0.15rem 0 0;
   color: var(--color-muted);
   font-size: 0.9rem;
+}
+
+.where-line {
+  margin: 0.2rem 0 0;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.where-line a {
+  color: inherit;
+  font-weight: 700;
 }
 
 .best-flag {

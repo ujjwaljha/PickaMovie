@@ -56,4 +56,12 @@ export type Title = {
   fits: Fits;
   /** TMDB poster, only when it is an image.tmdb.org URL. */
   posterUrl?: string;
+  /** Where TMDB lists this title in one country. A listing can change. */
+  watch?: {
+    region: string;
+    stream: string[];
+    rent: string[];
+    buy: string[];
+    link?: string;
+  };
 };

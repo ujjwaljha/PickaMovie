@@ -12,6 +12,7 @@ import { Comparison } from "./Comparison";
 import { Meter } from "./Meter";
 import { Poster } from "./Poster";
 import { SimilarList } from "./SimilarList";
+import { WatchLine } from "./WatchLine";
 
 export function Stage({
   session,
@@ -126,6 +127,7 @@ function QuickLook({
               <p>{[title.year || "Undated", KIND_LABEL[title.kind], plan.primary].filter(Boolean).join(" · ")}</p>
               <p>{title.audience ? `${title.audience} audience score` : "No audience score yet"}</p>
               {title.listedIn ? <p>Dub or subtitles listed in {title.listedIn}</p> : null}
+              <WatchLine title={title} />
               {showRank ? (
                 <p className={best ? "best-flag" : undefined}>{best ? "Best match" : leaderCount === titles.length ? "Too close to call" : `${top - fit} points behind`}</p>
               ) : null}
@@ -179,6 +181,7 @@ function Ticket({
       <p className="eyebrow">{tie ? "Too close to call" : "Watch this"}</p>
       <h2>{tie ? leaders.map((item) => item.title.name).join(" · ") : verdict.title.name}</h2>
       <p className="ticket-copy">{narrateDecision(ranked, { groupMode, filters })}</p>
+      {!tie ? <WatchLine title={verdict.title} /> : null}
       {groupMode ? (
         <ul className="ticket-people">
           {verdict.weigh.perPerson.map((person) => {
