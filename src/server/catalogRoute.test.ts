@@ -36,10 +36,10 @@ async function issuedCookie(): Promise<string> {
   return issued.split(";")[0] ?? "";
 }
 
-afterEach(() => {
+afterEach(async () => {
   globalThis.fetch = originalFetch;
   delete env().TMDB_API_KEY;
-  resetCatalogLimits();
+  await resetCatalogLimits();
 });
 
 describe("TMDB catalog route", () => {

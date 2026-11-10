@@ -1,24 +1,23 @@
 /**
  * Allowlisted TMDB proxy. This file is the published server route.
- * It imports nothing from the app, so the host can run it on its own.
+ * It does not import the page, so the host can run it without the UI.
  * The key stays in TMDB_API_KEY and is never written into a response.
+ * Fresh-call limits are stored in the app database so every server shares them.
  */
 
+import { resetSpendLimits, setSpendClock, spendBlocked } from "./limits";
+
+export {
+  CATALOG_ACTIVE_CLIENTS_PER_HOUR,
+  CATALOG_CLIENT_HOUR_LIMIT,
+  CATALOG_CLIENT_MINUTE_LIMIT,
+  CATALOG_HOUR_LIMIT,
+  CATALOG_MINUTE_LIMIT,
+  CATALOG_NEW_CLIENTS_PER_MINUTE,
+  CATALOG_SPENDERS_PER_MINUTE,
+} from "./limits";
+
 const TMDB_ORIGIN = "https://api.themoviedb.org";
-/** Fresh upstream calls per minute for the whole app. A repeated query is served from cache and does not count. */
-export const CATALOG_MINUTE_LIMIT = 20;
-/** Fresh upstream calls per minute for one browser. */
-export const CATALOG_CLIENT_MINUTE_LIMIT = 8;
-/** Browsers that may make fresh lookups in the same minute. With the per-browser cap, they stay under the app-wide minute limit. */
-export const CATALOG_SPENDERS_PER_MINUTE = 2;
-/** New browsers that may start spending in one minute. */
-export const CATALOG_NEW_CLIENTS_PER_MINUTE = 2;
-/** Browsers that may spend the shared allowance during one hour. With the per-browser hour cap, they stay under the app-wide hour limit. */
-export const CATALOG_ACTIVE_CLIENTS_PER_HOUR = 4;
-/** Fresh upstream calls per hour for the whole app. */
-export const CATALOG_HOUR_LIMIT = 200;
-/** Fresh upstream calls per hour for one browser. */
-export const CATALOG_CLIENT_HOUR_LIMIT = 40;
 /** Countries a visitor can ask about. The same codes live in the app's region list. */
 export const CATALOG_REGION_CODES = ["US", "IN", "GB", "CA", "AU", "DE", "FR", "ES", "IT", "BR", "MX", "JP", "KR", "AE", "SG", "ID", "TH", "PH", "ZA", "NG", "NL", "SE", "NZ", "TR", "AR"] as const;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
@@ -26,27 +25,11 @@ export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn",
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
 const REGION_CODES = new Set<string>(CATALOG_REGION_CODES);
 const LISTED_LOOKUPS = 4;
-const NEW_CLIENTS_PER_HOUR = 4;
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-const MAX_CLIENTS = 200;
 
 type Saved = { body: { configured: true; payload: unknown }; cacheSeconds: number; expires: number };
-type Window = { count: number; reset: number };
-type ClientBucket = { minute: Window; hour: Window; seen: number };
 
 const cache = new Map<string, Saved>();
 const inflight = new Map<string, Promise<Saved | null>>();
-const clients = new Map<string, ClientBucket>();
-const minute: Window = { count: 0, reset: 0 };
-const hour: Window = { count: 0, reset: 0 };
-const admittedMinute: Window = { count: 0, reset: 0 };
-const admittedHour: Window = { count: 0, reset: 0 };
-const activeHour = new Set<string>();
-let activeHourReset = 0;
-const spendersMinute = new Set<string>();
-let spendersMinuteReset = 0;
-let clockNow: () => number = () => Date.now();
 let signingKey: CryptoKey | null = null;
 
 const BROWSE_PATHS = [
@@ -71,27 +54,14 @@ type NodeResponse = {
 
 type Raw = Record<string, unknown>;
 
-export function resetCatalogLimits(): void {
+export async function resetCatalogLimits(): Promise<void> {
   cache.clear();
   inflight.clear();
-  minute.count = 0;
-  minute.reset = 0;
-  hour.count = 0;
-  hour.reset = 0;
-  admittedMinute.count = 0;
-  admittedMinute.reset = 0;
-  admittedHour.count = 0;
-  admittedHour.reset = 0;
-  activeHour.clear();
-  activeHourReset = 0;
-  spendersMinute.clear();
-  spendersMinuteReset = 0;
-  clockNow = () => Date.now();
-  clients.clear();
+  await resetSpendLimits();
 }
 
 export function setCatalogClock(clock: (() => number) | null): void {
-  clockNow = clock ?? (() => Date.now());
+  setSpendClock(clock);
 }
 
 function readKey(): string {
@@ -183,7 +153,7 @@ async function route(request: Request): Promise<Response> {
   }
 
   if (visitor.id === "anon") return send({ configured: true, error: "rate" }, 429);
-  if (tooMany(visitor.id, weight)) return send({ configured: true, error: "rate" }, 429);
+  if (await spendBlocked(visitor.id, weight)) return send({ configured: true, error: "rate" }, 429);
 
   const job = loadCatalog(op ?? "", key, path, lang, audio).then((saved) => {
     if (saved) remember(id, saved);
@@ -524,78 +494,6 @@ function remember(id: string, saved: Saved): void {
     if (oldest) cache.delete(oldest);
   }
   cache.set(id, { ...saved, expires: Date.now() + saved.cacheSeconds * 1000 });
-}
-
-function tooMany(client: string, weight: number): boolean {
-  const now = clockNow();
-  roll(minute, now, MINUTE_MS);
-  roll(hour, now, HOUR_MS);
-  roll(admittedMinute, now, MINUTE_MS);
-  roll(admittedHour, now, HOUR_MS);
-  if (now >= activeHourReset) {
-    activeHour.clear();
-    activeHourReset = now + HOUR_MS;
-  }
-  if (now >= spendersMinuteReset) {
-    spendersMinute.clear();
-    spendersMinuteReset = now + MINUTE_MS;
-  }
-  if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > CATALOG_HOUR_LIMIT) return true;
-  if (!activeHour.has(client) && activeHour.size >= CATALOG_ACTIVE_CLIENTS_PER_HOUR) return true;
-  if (!spendersMinute.has(client) && spendersMinute.size >= CATALOG_SPENDERS_PER_MINUTE) return true;
-  const isNew = !clients.has(client);
-  if (isNew && (admittedMinute.count >= CATALOG_NEW_CLIENTS_PER_MINUTE || admittedHour.count >= NEW_CLIENTS_PER_HOUR)) return true;
-  const bucket = takeClient(client, now);
-  if (!bucket) return true;
-  roll(bucket.minute, now, MINUTE_MS);
-  roll(bucket.hour, now, HOUR_MS);
-  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CATALOG_CLIENT_HOUR_LIMIT) {
-    if (isNew && bucket.minute.count === 0 && bucket.hour.count === 0) clients.delete(client);
-    return true;
-  }
-  if (isNew && clients.get(client) === bucket) {
-    admittedMinute.count += 1;
-    admittedHour.count += 1;
-  }
-  activeHour.add(client);
-  spendersMinute.add(client);
-  minute.count += weight;
-  hour.count += weight;
-  bucket.minute.count += weight;
-  bucket.hour.count += weight;
-  return false;
-}
-
-function roll(window: Window, now: number, span: number): void {
-  if (now < window.reset) return;
-  window.count = 0;
-  window.reset = now + span;
-}
-
-function takeClient(id: string, now: number): ClientBucket | null {
-  const found = clients.get(id);
-  if (found) {
-    found.seen = now;
-    return found;
-  }
-  if (clients.size >= MAX_CLIENTS && !dropIdleClient(now)) return null;
-  const created: ClientBucket = { minute: { count: 0, reset: 0 }, hour: { count: 0, reset: 0 }, seen: now };
-  clients.set(id, created);
-  return created;
-}
-
-function dropIdleClient(now: number): boolean {
-  let drop: string | null = null;
-  let seen = Infinity;
-  for (const [key, bucket] of clients) {
-    if (key === "anon" || bucket.seen >= seen) continue;
-    if (bucket.minute.count > 0 && now < bucket.minute.reset) continue;
-    drop = key;
-    seen = bucket.seen;
-  }
-  if (!drop) return false;
-  clients.delete(drop);
-  return true;
 }
 
 async function identify(request: Request): Promise<{ id: string; token: string; fresh: boolean }> {
