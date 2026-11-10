@@ -7,18 +7,22 @@
 const TMDB_ORIGIN = "https://api.themoviedb.org";
 /** Fresh upstream calls per minute for the whole app. A repeated query is served from cache and does not count. */
 export const CATALOG_MINUTE_LIMIT = 20;
-/** Fresh upstream calls per minute for one browser. This stays below the app-wide limit. */
+/** Fresh upstream calls per minute for one browser. */
 export const CATALOG_CLIENT_MINUTE_LIMIT = 8;
-/** New browsers that may start spending in one minute. Together they stay under the app-wide limit. */
+/** Browsers that may make fresh lookups in the same minute. With the per-browser cap, they stay under the app-wide minute limit. */
+export const CATALOG_SPENDERS_PER_MINUTE = 2;
+/** New browsers that may start spending in one minute. */
 export const CATALOG_NEW_CLIENTS_PER_MINUTE = 2;
-/** Browsers that may spend the shared allowance during one hour. */
+/** Browsers that may spend the shared allowance during one hour. With the per-browser hour cap, they stay under the app-wide hour limit. */
 export const CATALOG_ACTIVE_CLIENTS_PER_HOUR = 4;
+/** Fresh upstream calls per hour for the whole app. */
+export const CATALOG_HOUR_LIMIT = 200;
+/** Fresh upstream calls per hour for one browser. */
+export const CATALOG_CLIENT_HOUR_LIMIT = 40;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
 export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
 const LISTED_LOOKUPS = 4;
-const HOUR_LIMIT = 200;
-const CLIENT_HOUR_LIMIT = 40;
 const NEW_CLIENTS_PER_HOUR = 4;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -37,6 +41,8 @@ const admittedMinute: Window = { count: 0, reset: 0 };
 const admittedHour: Window = { count: 0, reset: 0 };
 const activeHour = new Set<string>();
 let activeHourReset = 0;
+const spendersMinute = new Set<string>();
+let spendersMinuteReset = 0;
 let clockNow: () => number = () => Date.now();
 let signingKey: CryptoKey | null = null;
 
@@ -75,6 +81,8 @@ export function resetCatalogLimits(): void {
   admittedHour.reset = 0;
   activeHour.clear();
   activeHourReset = 0;
+  spendersMinute.clear();
+  spendersMinuteReset = 0;
   clockNow = () => Date.now();
   clients.clear();
 }
@@ -458,15 +466,20 @@ function tooMany(client: string, weight: number): boolean {
     activeHour.clear();
     activeHourReset = now + HOUR_MS;
   }
-  if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > HOUR_LIMIT) return true;
+  if (now >= spendersMinuteReset) {
+    spendersMinute.clear();
+    spendersMinuteReset = now + MINUTE_MS;
+  }
+  if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > CATALOG_HOUR_LIMIT) return true;
   if (!activeHour.has(client) && activeHour.size >= CATALOG_ACTIVE_CLIENTS_PER_HOUR) return true;
+  if (!spendersMinute.has(client) && spendersMinute.size >= CATALOG_SPENDERS_PER_MINUTE) return true;
   const isNew = !clients.has(client);
   if (isNew && (admittedMinute.count >= CATALOG_NEW_CLIENTS_PER_MINUTE || admittedHour.count >= NEW_CLIENTS_PER_HOUR)) return true;
   const bucket = takeClient(client, now);
   if (!bucket) return true;
   roll(bucket.minute, now, MINUTE_MS);
   roll(bucket.hour, now, HOUR_MS);
-  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CLIENT_HOUR_LIMIT) {
+  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CATALOG_CLIENT_HOUR_LIMIT) {
     if (isNew && bucket.minute.count === 0 && bucket.hour.count === 0) clients.delete(client);
     return true;
   }
@@ -475,6 +488,7 @@ function tooMany(client: string, weight: number): boolean {
     admittedHour.count += 1;
   }
   activeHour.add(client);
+  spendersMinute.add(client);
   minute.count += weight;
   hour.count += weight;
   bucket.minute.count += weight;

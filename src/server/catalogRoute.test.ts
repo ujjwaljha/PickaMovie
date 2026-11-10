@@ -4,10 +4,13 @@ import { CATALOG_LANGUAGES } from "../domain/languages";
 import {
   allowedTmdbPath,
   CATALOG_ACTIVE_CLIENTS_PER_HOUR,
+  CATALOG_CLIENT_HOUR_LIMIT,
   CATALOG_CLIENT_MINUTE_LIMIT,
+  CATALOG_HOUR_LIMIT,
   CATALOG_LANGUAGE_CODES,
   CATALOG_MINUTE_LIMIT,
   CATALOG_NEW_CLIENTS_PER_MINUTE,
+  CATALOG_SPENDERS_PER_MINUTE,
   GET,
   resetCatalogLimits,
   setCatalogClock,
@@ -114,6 +117,42 @@ describe("TMDB catalog route", () => {
     expect(JSON.stringify(await response.json())).not.toContain("ey-test-token");
   });
 
+  it("keeps every browser allowance under the shared ceiling", () => {
+    expect(CATALOG_SPENDERS_PER_MINUTE * CATALOG_CLIENT_MINUTE_LIMIT).toBeLessThan(CATALOG_MINUTE_LIMIT);
+    expect(CATALOG_ACTIVE_CLIENTS_PER_HOUR * CATALOG_CLIENT_HOUR_LIMIT).toBeLessThan(CATALOG_HOUR_LIMIT);
+    expect(CATALOG_NEW_CLIENTS_PER_MINUTE).toBeLessThanOrEqual(CATALOG_SPENDERS_PER_MINUTE);
+  });
+
+  it("stops a third browser from spending in the same minute", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    let now = 1_700_000_000_000;
+    setCatalogClock(() => now);
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    const first = [await issuedCookie(), await issuedCookie()];
+    for (const [index, cookie] of first.entries()) {
+      expect((await GET(search(`min-a-${index}`, cookie))).status).toBe(200);
+    }
+    now += 61_000;
+    const second = [await issuedCookie(), await issuedCookie()];
+    for (const [index, cookie] of second.entries()) {
+      expect((await GET(search(`min-b-${index}`, cookie))).status).toBe(200);
+    }
+    now += 61_000;
+    for (const [index, cookie] of first.entries()) {
+      expect((await GET(search(`min-c-${index}`, cookie))).status).toBe(200);
+    }
+    const blocked = await GET(search("min-third", second[0] ?? ""));
+    expect(blocked.status).toBe(429);
+    expect((await GET(search("min-same", first[0] ?? ""))).status).toBe(200);
+    expect(calls).toBe(first.length + second.length + first.length + 1);
+    expect(calls).toBeLessThan(CATALOG_MINUTE_LIMIT);
+    expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
+  });
+
   it("stops new browsers before they can spend the whole shared minute", async () => {
     env().TMDB_API_KEY = "shelf-test-key";
     let calls = 0;
@@ -162,8 +201,15 @@ describe("TMDB catalog route", () => {
     }
     now += 60 * 60 * 1000;
     const returning = [...early, ...later];
-    for (const [index, cookie] of returning.entries()) {
+    for (const [index, cookie] of returning.slice(0, CATALOG_SPENDERS_PER_MINUTE).entries()) {
       const ok = await GET(search(`hour-c-${index}`, cookie));
+      expect(ok.status).toBe(200);
+    }
+    const waiting = await GET(search("hour-wait", returning[CATALOG_SPENDERS_PER_MINUTE] ?? ""));
+    expect(waiting.status).toBe(429);
+    now += 61_000;
+    for (const [index, cookie] of returning.slice(CATALOG_SPENDERS_PER_MINUTE).entries()) {
+      const ok = await GET(search(`hour-d-${index}`, cookie));
       expect(ok.status).toBe(200);
     }
     const extra = await issuedCookie();
