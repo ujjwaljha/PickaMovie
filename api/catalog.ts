@@ -11,6 +11,8 @@ export const CATALOG_MINUTE_LIMIT = 20;
 export const CATALOG_CLIENT_MINUTE_LIMIT = 8;
 /** New browsers that may start spending in one minute. Together they stay under the app-wide limit. */
 export const CATALOG_NEW_CLIENTS_PER_MINUTE = 2;
+/** Browsers that may spend the shared allowance during one hour. */
+export const CATALOG_ACTIVE_CLIENTS_PER_HOUR = 4;
 /** Languages a visitor can ask for. The same codes live in the app's language list. */
 export const CATALOG_LANGUAGE_CODES = ["en", "hi", "ta", "te", "ml", "kn", "bn", "mr", "ja", "ko", "zh", "es", "fr", "de", "ar", "pt", "it", "th", "ru"] as const;
 const LANGUAGE_CODES = new Set<string>(CATALOG_LANGUAGE_CODES);
@@ -33,6 +35,9 @@ const minute: Window = { count: 0, reset: 0 };
 const hour: Window = { count: 0, reset: 0 };
 const admittedMinute: Window = { count: 0, reset: 0 };
 const admittedHour: Window = { count: 0, reset: 0 };
+const activeHour = new Set<string>();
+let activeHourReset = 0;
+let clockNow: () => number = () => Date.now();
 let signingKey: CryptoKey | null = null;
 
 const BROWSE_PATHS = [
@@ -68,7 +73,14 @@ export function resetCatalogLimits(): void {
   admittedMinute.reset = 0;
   admittedHour.count = 0;
   admittedHour.reset = 0;
+  activeHour.clear();
+  activeHourReset = 0;
+  clockNow = () => Date.now();
   clients.clear();
+}
+
+export function setCatalogClock(clock: (() => number) | null): void {
+  clockNow = clock ?? (() => Date.now());
 }
 
 function readKey(): string {
@@ -437,22 +449,32 @@ function remember(id: string, saved: Saved): void {
 }
 
 function tooMany(client: string, weight: number): boolean {
-  const now = Date.now();
+  const now = clockNow();
   roll(minute, now, MINUTE_MS);
   roll(hour, now, HOUR_MS);
   roll(admittedMinute, now, MINUTE_MS);
   roll(admittedHour, now, HOUR_MS);
+  if (now >= activeHourReset) {
+    activeHour.clear();
+    activeHourReset = now + HOUR_MS;
+  }
   if (minute.count + weight > CATALOG_MINUTE_LIMIT || hour.count + weight > HOUR_LIMIT) return true;
+  if (!activeHour.has(client) && activeHour.size >= CATALOG_ACTIVE_CLIENTS_PER_HOUR) return true;
   const isNew = !clients.has(client);
   if (isNew && (admittedMinute.count >= CATALOG_NEW_CLIENTS_PER_MINUTE || admittedHour.count >= NEW_CLIENTS_PER_HOUR)) return true;
   const bucket = takeClient(client, now);
+  if (!bucket) return true;
   roll(bucket.minute, now, MINUTE_MS);
   roll(bucket.hour, now, HOUR_MS);
-  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CLIENT_HOUR_LIMIT) return true;
+  if (bucket.minute.count + weight > CATALOG_CLIENT_MINUTE_LIMIT || bucket.hour.count + weight > CLIENT_HOUR_LIMIT) {
+    if (isNew && bucket.minute.count === 0 && bucket.hour.count === 0) clients.delete(client);
+    return true;
+  }
   if (isNew && clients.get(client) === bucket) {
     admittedMinute.count += 1;
     admittedHour.count += 1;
   }
+  activeHour.add(client);
   minute.count += weight;
   hour.count += weight;
   bucket.minute.count += weight;
@@ -466,13 +488,13 @@ function roll(window: Window, now: number, span: number): void {
   window.reset = now + span;
 }
 
-function takeClient(id: string, now: number): ClientBucket {
+function takeClient(id: string, now: number): ClientBucket | null {
   const found = clients.get(id);
   if (found) {
     found.seen = now;
     return found;
   }
-  if (id !== "anon" && clients.size >= MAX_CLIENTS && !dropIdleClient(now)) return takeClient("anon", now);
+  if (clients.size >= MAX_CLIENTS && !dropIdleClient(now)) return null;
   const created: ClientBucket = { minute: { count: 0, reset: 0 }, hour: { count: 0, reset: 0 }, seen: now };
   clients.set(id, created);
   return created;

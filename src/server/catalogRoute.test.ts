@@ -3,12 +3,14 @@ import handler from "../../api/catalog";
 import { CATALOG_LANGUAGES } from "../domain/languages";
 import {
   allowedTmdbPath,
+  CATALOG_ACTIVE_CLIENTS_PER_HOUR,
   CATALOG_CLIENT_MINUTE_LIMIT,
   CATALOG_LANGUAGE_CODES,
   CATALOG_MINUTE_LIMIT,
   CATALOG_NEW_CLIENTS_PER_MINUTE,
   GET,
   resetCatalogLimits,
+  setCatalogClock,
 } from "./catalogRoute";
 
 const originalFetch = globalThis.fetch;
@@ -136,6 +138,40 @@ describe("TMDB catalog route", () => {
     const again = await GET(search("cap-extra", admitted[0] ?? ""));
     expect(again.status).toBe(429);
     expect(calls).toBe(CATALOG_NEW_CLIENTS_PER_MINUTE * CATALOG_CLIENT_MINUTE_LIMIT);
+  });
+
+  it("lets only a few browsers spend during one hour", async () => {
+    env().TMDB_API_KEY = "shelf-test-key";
+    let calls = 0;
+    let now = 1_700_000_000_000;
+    setCatalogClock(() => now);
+    globalThis.fetch = async () => {
+      calls += 1;
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    const early = [await issuedCookie(), await issuedCookie()];
+    for (const [index, cookie] of early.entries()) {
+      const ok = await GET(search(`hour-a-${index}`, cookie));
+      expect(ok.status).toBe(200);
+    }
+    now += 61_000;
+    const later = [await issuedCookie(), await issuedCookie()];
+    for (const [index, cookie] of later.entries()) {
+      const ok = await GET(search(`hour-b-${index}`, cookie));
+      expect(ok.status).toBe(200);
+    }
+    now += 60 * 60 * 1000;
+    const returning = [...early, ...later];
+    for (const [index, cookie] of returning.entries()) {
+      const ok = await GET(search(`hour-c-${index}`, cookie));
+      expect(ok.status).toBe(200);
+    }
+    const extra = await issuedCookie();
+    const blocked = await GET(search("hour-extra", extra));
+    expect(blocked.status).toBe(429);
+    expect(calls).toBe(early.length + later.length + returning.length);
+    expect(calls).toBe(CATALOG_ACTIVE_CLIENTS_PER_HOUR * 2);
+    expect(JSON.stringify(await blocked.json())).not.toContain("shelf-test-key");
   });
 
   it("caps one visitor while another visitor can still search", async () => {
